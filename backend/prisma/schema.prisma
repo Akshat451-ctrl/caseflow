@@ -1,0 +1,75 @@
+ Prisma schema for CaseFlow application
+ Datasource: PostgreSQL
+ Run `npx prisma generate` after creating the database and installing dependencies
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Set via environment variable in your .env file at project root:
+  // DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
+  url = env("DATABASE_URL")
+}
+
+// Roles for users
+enum Role {
+  ADMIN
+  OPERATOR
+}
+
+// Status values for a Case import/processing
+enum CaseStatus {
+  NEW
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(OPERATOR)
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  imports      ImportLog[]
+  cases        Case[]    @relation("ImportedBy")
+
+  @@map("users")
+}
+
+model Case {
+  id            String     @id @default(uuid())
+  case_id       String     @unique
+  applicant_name String?
+  dob           DateTime?  // date of birth; optional if missing in CSV
+  email         String?
+  phone         String?
+  category      String?
+  priority      Int?       // numerical priority; nullable
+  status        CaseStatus @default(NEW)
+  importedById  String?    // FK to User
+  importedBy    User?      @relation("ImportedBy", fields: [importedById], references: [id])
+  importedAt    DateTime?  @default(now())
+  errorMessage  String?    // if parsing/validation failed for this row
+
+  @@index([status])
+  @@index([importedById])
+  @@map("cases")
+}
+
+model ImportLog {
+  id         String   @id @default(uuid())
+  userId     String   // who triggered the import
+  user       User     @relation(fields: [userId], references: [id])
+  totalRows  Int
+  successCount Int
+  failCount  Int
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@map("import_logs")
+}
