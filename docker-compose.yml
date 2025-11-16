@@ -1,0 +1,32 @@
+# docker-compose.yml
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    container_name: caseflow-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: caseflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/caseflow?schema=public
+      - JWT_SECRET=my-super-secret-jwt-key-2025
+      - PORT=5000
+    volumes:
+      - ./backend:/app
+      - ./.env:/app/.env
+
+volumes:
+  postgres_data:
