@@ -1,21 +1,26 @@
-require('dotenv').config();
-
-const express = require('express');
-const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
+import dotenv from 'dotenv';
+dotenv.config();
+import express from 'express';
+import cors from 'cors';
+import { PrismaClient } from '@prisma/client';
 
 // PrismaClient singleton to avoid multiple instances in dev (hot-reload)
-let prisma;
-if (!global.__prismaClient) {
-  global.__prismaClient = new PrismaClient();
+if (!globalThis.__prismaClient) {
+  globalThis.__prismaClient = new PrismaClient();
 }
-prisma = global.__prismaClient;
+export const prisma = globalThis.__prismaClient;
 
 const app = express();
 
 // Middlewares
 app.use(cors());
 app.use(express.json());
+
+// Mount routers (auth)
+import authRouter from './controllers/auth.js';
+app.use('/api/auth', authRouter);
+import casesRouter from './controllers/cases.js';
+app.use('/api/cases', casesRouter);
 
 // Health endpoint - checks basic server + DB connectivity
 app.get('/health', async (req, res) => {
