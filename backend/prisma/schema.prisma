@@ -35,6 +35,7 @@ model User {
   // Relations
   imports      ImportLog[]
   cases        Case[]    @relation("ImportedBy")
+  notes        Note[]
 
   @@map("users")
 }
@@ -53,6 +54,7 @@ model Case {
   importedBy     User?      @relation("ImportedBy", fields: [importedById], references: [id])
   importedAt     DateTime?  @default(now())
   errorMessage   String?
+  notes          Note[]
 
   @@index([status])
   @@index([importedById])
@@ -70,4 +72,17 @@ model ImportLog {
 
   @@index([userId])
   @@map("import_logs")
+}
+
+model Note {
+  id        String   @id @default(uuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id])
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([caseId])
+  @@map("notes")
 }

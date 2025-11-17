@@ -21,6 +21,8 @@ import authRouter from './controllers/auth.js';
 app.use('/api/auth', authRouter);
 import casesRouter from './controllers/cases.js';
 app.use('/api/cases', casesRouter);
+import importLogsRouter from './controllers/importLogs.js';
+app.use('/api/import-logs', importLogsRouter);
 
 // Health endpoint - checks basic server + DB connectivity
 app.get('/health', async (req, res) => {
