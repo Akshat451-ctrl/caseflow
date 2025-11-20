@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'react-hot-toast';
@@ -144,7 +144,7 @@ export default function Login() {
           </div>
 
           <div className="mt-6 text-center text-sm text-gray-500">
-            Don't have an account? <span className="text-indigo-600 font-medium">Ask an admin to create one.</span>
+            Don't have an account? <Link to="/register" className="text-indigo-600 font-medium hover:text-indigo-500">Sign up</Link>
           </div>
         </div>
       </div>

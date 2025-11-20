@@ -45,7 +45,21 @@ router.post('/register', async (req, res) => {
       select: { id: true, email: true, role: true },
     });
 
-    res.status(201).json({ user });
+    // Generate JWT
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('JWT_SECRET not set in environment');
+      return res.status(500).json({ error: 'Authentication not configured' });
+    }
+
+    const authExpires = process.env.JWT_EXPIRES || '1h';
+    const token = jwt.sign(
+      { userId: user.id, role: user.role },
+      jwtSecret,
+      { expiresIn: authExpires }
+    );
+
+    res.status(201).json({ token, user });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors[0].message });
@@ -83,10 +97,11 @@ router.post('/login', async (req, res) => {
       return res.status(500).json({ error: 'Authentication not configured' });
     }
 
+    const authExpires = process.env.JWT_EXPIRES || '1h';
     const token = jwt.sign(
       { userId: user.id, role: user.role },
       jwtSecret,
-      { expiresIn: '1h' }
+      { expiresIn: authExpires }
     );
 
     // Remove passwordHash from response
@@ -121,7 +136,8 @@ router.post('/magic-login', async (req, res) => {
     if (!jwtSecret) return res.status(500).json({ error: 'JWT not configured' });
 
     // magic token short lived
-    const magicToken = jwt.sign({ email, type: 'magic_login' }, jwtSecret, { expiresIn: '15m' });
+  const magicExpires = process.env.MAGIC_TOKEN_EXPIRES || '15m';
+  const magicToken = jwt.sign({ email, type: 'magic_login' }, jwtSecret, { expiresIn: magicExpires });
 
     // build link
     const frontend = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -198,8 +214,9 @@ router.post('/verify-magic', async (req, res) => {
       user = await prisma.user.create({ data: { email, passwordHash, role: 'OPERATOR' }, select: { id: true, email: true, role: true } });
     }
 
-    // Issue regular auth JWT
-    const authToken = jwt.sign({ userId: user.id, role: user.role }, jwtSecret, { expiresIn: '1h' });
+  // Issue regular auth JWT (configurable via JWT_EXPIRES env var)
+  const authExpires = process.env.JWT_EXPIRES || '1h';
+  const authToken = jwt.sign({ userId: user.id, role: user.role }, jwtSecret, { expiresIn: authExpires });
 
     res.json({ token: authToken, user });
   } catch (err) {

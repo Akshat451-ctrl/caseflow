@@ -1,0 +1,6 @@
+case_id,applicant_name,dob,email,phone,category,priority
+C001,  john doe  ,1990-01-01,john@gmail.com,9876543210,TAX,HIGH
+C002,jane smith,1985/05/15,jane@outlook,  1234567890 ,WRONG, 
+C003,  rahul kumar  ,2000-12-32,rahul.com,+919876543210,LICENSE,MEDIUM
+C004,priya sharma,1995-07-15,priya@yahoo.com,9123456789,PERMIT,HIGH
+C005,  amit   verma  ,1992-02-30,amit@gmail,  987 654 321 ,TAX,INVALID

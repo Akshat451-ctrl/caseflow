@@ -62,6 +62,7 @@ export default function ImportReport() {
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
+        {/* Enhanced success card */}
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Import Report</h1>
@@ -92,10 +93,11 @@ export default function ImportReport() {
           </div>
         </div>
 
+        {/* Failed rows table and actions */}
         <div className="bg-white p-4 rounded shadow mb-4">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-medium">Failed Rows</h2>
-            <div>
+            <div className="flex space-x-2">
               <button onClick={downloadCSV} className="px-3 py-1 bg-indigo-600 text-white rounded">Download Failed Rows as CSV</button>
             </div>
           </div>
@@ -105,8 +107,10 @@ export default function ImportReport() {
           </div>
         </div>
 
-        <div>
+        {/* Navigation buttons */}
+        <div className="flex space-x-4">
           <button onClick={() => navigate('/cases')} className="px-4 py-2 bg-gray-200 rounded">Back to cases</button>
+          <button onClick={() => navigate('/upload')} className="px-4 py-2 bg-gray-200 rounded">Import Again</button>
         </div>
       </div>
     </div>

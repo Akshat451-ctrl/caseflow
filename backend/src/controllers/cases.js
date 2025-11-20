@@ -5,6 +5,29 @@ import { prisma } from '../index.js';
 
 const router = Router();
 
+// helper: coerce priority values to int or null
+function parsePriorityValue(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isNaN(v) ? null : v;
+  const s = String(v).trim();
+  if (s === '') return null;
+  // numeric string
+  if (!Number.isNaN(Number(s))) return Number(s);
+  // map common labels to numbers (configurable mapping if needed)
+  const up = s.toUpperCase();
+  if (up === 'HIGH') return 3;
+  if (up === 'MEDIUM') return 2;
+  if (up === 'LOW') return 1;
+  return null;
+}
+
+function safeDateFrom(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+
 // Auth middleware
 const authMiddleware = (req, res, next) => {
   const auth = req.headers.authorization;
@@ -76,7 +99,15 @@ router.post('/batch', authMiddleware, async (req, res) => {
         const parsed = caseSchema.safeParse(row);
         if (!parsed.success) {
           failCount++;
-          const msg = parsed.error.errors.map(e => e.message).join('; ');
+          // defensive: parsed.error.errors should be an array, but guard against unexpected shapes
+          let msg;
+          if (parsed && parsed.error && Array.isArray(parsed.error.errors)) {
+            msg = parsed.error.errors.map((e) => e.message).join('; ');
+          } else if (parsed && parsed.error) {
+            msg = String(parsed.error);
+          } else {
+            msg = 'Validation failed';
+          }
           errors.push({ index: rowIndex, case_id: row?.case_id ?? null, error: msg });
 
           // Persist failed row as a Case with errorMessage for reporting
@@ -84,12 +115,12 @@ router.post('/batch', authMiddleware, async (req, res) => {
             const fallbackId = `FAILED-${importTimestamp.getTime()}-${ci}-${i}`;
             const createData = {
               case_id: row?.case_id ?? fallbackId,
-              applicant_name: row?.applicant_name ?? null,
-              dob: row?.dob ? new Date(row.dob) : null,
-              email: row?.email ?? null,
-              phone: row?.phone ?? null,
-              category: row?.category ?? null,
-              priority: row?.priority ?? null,
+              applicant_name: row?.applicant_name ? String(row.applicant_name).trim() : null,
+              dob: safeDateFrom(row?.dob),
+              email: row?.email ? String(row.email).trim() : null,
+              phone: row?.phone ? String(row.phone).trim() : null,
+              category: row?.category ? String(row.category).trim() : null,
+              priority: parsePriorityValue(row?.priority),
               status: 'FAILED',
               importedById: req.user?.userId ?? null,
               importedAt: importTimestamp,
@@ -145,12 +176,12 @@ router.post('/batch', authMiddleware, async (req, res) => {
             const fallbackId = `FAILED-${importTimestamp.getTime()}-${ci}-${i}`;
             const createData = {
               case_id: data.case_id ?? fallbackId,
-              applicant_name: data.applicant_name ?? null,
-              dob: dob,
-              email: data.email ?? null,
-              phone: data.phone ?? null,
-              category: data.category ?? null,
-              priority: data.priority ?? null,
+              applicant_name: data.applicant_name ? String(data.applicant_name).trim() : null,
+              dob: safeDateFrom(data.dob),
+              email: data.email ? String(data.email).trim() : null,
+              phone: data.phone ? String(data.phone).trim() : null,
+              category: data.category ? String(data.category).trim() : null,
+              priority: parsePriorityValue(data.priority),
               status: 'FAILED',
               importedById: req.user?.userId ?? null,
               importedAt: importTimestamp,
@@ -172,15 +203,20 @@ router.post('/batch', authMiddleware, async (req, res) => {
     // Create ImportLog with explicit createdAt = importTimestamp so we can link failed Case rows
     let importLog;
     try {
-      importLog = await prisma.importLog.create({
-        data: {
-          userId: req.user?.userId ?? 'unknown',
-          totalRows,
-          successCount,
-          failCount,
-          createdAt: importTimestamp,
-        },
-      });
+      // only create importLog if we have a valid authenticated user id to satisfy FK
+      if (req.user && req.user.userId) {
+        importLog = await prisma.importLog.create({
+          data: {
+            userId: req.user.userId,
+            totalRows,
+            successCount,
+            failCount,
+            createdAt: importTimestamp,
+          },
+        });
+      } else {
+        console.warn('Skipping ImportLog creation: no authenticated user id available');
+      }
     } catch (err) {
       console.error('Failed to create ImportLog:', err);
       // don't fail the whole request; just warn
@@ -189,7 +225,8 @@ router.post('/batch', authMiddleware, async (req, res) => {
     return res.json({ totalRows, successCount, failCount, errors, importLogId: importLog?.id });
   } catch (err) {
     console.error('Batch import error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    // include message to help debugging in dev
+    return res.status(500).json({ error: 'Internal server error', message: err?.message ?? String(err) });
   }
 });
 
@@ -269,16 +306,27 @@ router.get('/:caseId', authMiddleware, async (req, res) => {
   try {
     const { caseId } = req.params;
     if (!caseId) return res.status(400).json({ error: 'Missing caseId' });
-
-    const caseItem = await prisma.case.findUnique({
+    // Try to find by primary id first; if not found, fall back to case_id (business id)
+    let caseItem = null;
+    caseItem = await prisma.case.findUnique({
       where: { id: String(caseId) },
       include: {
         importedBy: { select: { id: true, email: true } },
         notes: { include: { author: { select: { id: true, email: true } } }, orderBy: { createdAt: 'desc' } },
       },
     });
+    if (!caseItem) {
+      // fallback: search by case_id field (business-facing case id)
+      caseItem = await prisma.case.findUnique({
+        where: { case_id: String(caseId) },
+        include: {
+          importedBy: { select: { id: true, email: true } },
+          notes: { include: { author: { select: { id: true, email: true } } }, orderBy: { createdAt: 'desc' } },
+        },
+      });
+    }
 
-    if (!caseItem) return res.status(404).json({ error: 'Case not found' });
+  if (!caseItem) return res.status(404).json({ error: 'Case not found' });
 
     // Try to find the ImportLog that matches the importedAt timestamp and user
     let importLog = null;

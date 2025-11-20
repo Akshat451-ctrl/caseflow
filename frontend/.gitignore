@@ -23,6 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 # .gitignore
+node_modules/
+node_modules
 .env
 dist/
 frontend/node_modules/
