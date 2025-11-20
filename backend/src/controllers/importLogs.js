@@ -23,6 +23,20 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
+// GET /api/import-logs
+// Returns all import logs
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const logs = await prisma.importLog.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    return res.json({ importLogs: logs });
+  } catch (err) {
+    console.error('Failed to fetch import logs:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/import-logs/:id
 // Returns the import log and any failed rows (cases with errorMessage) that share the same importedAt timestamp
 router.get('/:id', authMiddleware, async (req, res) => {

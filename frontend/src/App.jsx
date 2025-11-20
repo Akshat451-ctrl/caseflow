@@ -6,6 +6,7 @@ import Cases from './pages/Cases';
 import Navbar from './components/Navbar';
 import { useAuthStore } from './store/authStore';
 import ImportReport from './pages/ImportReport';
+import Reports from './pages/Reports';
 import CaseDetail from './pages/CaseDetail';
 
 function ProtectedRoute({ children }) {
@@ -30,6 +31,14 @@ function App() {
           }
         />
         <Route path="/import-report/:id" element={<ImportReport />} />
+        <Route
+          path="/import-reports"
+          element={
+            <ProtectedRoute>
+              <Reports />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/cases"
           element={
