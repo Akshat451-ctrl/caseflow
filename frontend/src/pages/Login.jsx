@@ -67,34 +67,59 @@ export default function Login() {
 
   const submit = async (e) => {
     e?.preventDefault();
+    if (loading) return; // prevent duplicate submissions
     if (!validateForm()) return;
 
     setLoading(true);
     try {
       if (mode === 'login') {
-        const res = await api.post('/api/auth/login', {
+        const payload = {
           email: formData.email,
           password: formData.password
-        });
+        };
+        console.log('[AUTH] Login payload:', payload); // debug payload
+        const res = await api.post('/api/auth/login', payload);
+        console.log('[AUTH] Login response:', res?.status, res?.data); // debug response
         const { token, user } = res.data;
         setAuth(token, user);
         toast.success('Signed in successfully');
         navigate('/upload');
       } else {
-        const res = await api.post('/api/auth/register', {
+        const payload = {
           name: formData.name.trim(),
           email: formData.email,
           password: formData.password
-        });
+        };
+        console.log('[AUTH] Register payload:', payload); // debug payload
+        const res = await api.post('/api/auth/register', payload);
+        console.log('[AUTH] Register response:', res?.status, res?.data); // debug response
         const { token, user } = res.data;
         setAuth(token, user);
         toast.success('Account created — welcome!');
         navigate('/upload');
       }
     } catch (err) {
-      console.error(err);
-      const message = err?.response?.data?.error || err.message || 'Authentication failed';
+      // Enhanced error logging for easier diagnosis
+      console.error('[AUTH ERROR]', {
+        message: err?.message,
+        status: err?.response?.status,
+        responseData: err?.response?.data,
+        stack: err?.stack
+      });
+
+      // Prefer structured server message, fall back to full response JSON for debugging
+      const serverMsg = err?.response?.data?.error || err?.response?.data?.message;
+      const serverDebug = err?.response?.data && typeof err.response.data === 'object'
+        ? JSON.stringify(err.response.data)
+        : undefined;
+
+      const message = serverMsg || err.message || 'Authentication failed';
+
+      // show both concise message and a developer toast with status + raw body
       toast.error(message);
+      if (err?.response?.status) {
+        toast('Server: ' + err.response.status + (serverDebug ? ` — ${serverDebug}` : ''), { icon: 'ℹ️' });
+      }
     } finally {
       if (mounted.current) setLoading(false);
     }
