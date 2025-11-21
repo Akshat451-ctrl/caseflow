@@ -4,7 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 
-// PrismaClient singleton to avoid multiple instances in dev (hot-reload)
+// PrismaClient singleton
 if (!globalThis.__prismaClient) {
   globalThis.__prismaClient = new PrismaClient();
 }
@@ -12,33 +12,37 @@ export const prisma = globalThis.__prismaClient;
 
 const app = express();
 
-// Middlewares
-app.use(cors());
+// === CORS FIX - IMPORTANT! ===
+app.use(cors({
+  origin: [
+    "http://localhost:5173",                            // local development
+    "https://caseflow-skyclaudventures.vercel.app",     // तुम्हारा live frontend
+    // अगर तुम कोई और domain बनाओ तो यहाँ add कर देना
+  ],
+  credentials: true,  // ये जरूरी है token/cookie के लिए
+}));
+
 app.use(express.json());
 
-// Mount routers (auth)
+// Mount routers
 import authRouter from './controllers/auth.js';
 app.use('/api/auth', authRouter);
+
 import casesRouter from './controllers/cases.js';
 app.use('/api/cases', casesRouter);
+
 import importLogsRouter from './controllers/importLogs.js';
 app.use('/api/import-logs', importLogsRouter);
 
-// Health endpoint - checks basic server + DB connectivity
+// Health endpoint
 app.get('/health', async (req, res) => {
   try {
-    // Simple DB call to ensure connection works
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: 'ok', db: 'connected' });
   } catch (err) {
     console.error('Health check DB error:', err);
     res.status(500).json({ status: 'error', db: 'unreachable', error: String(err) });
   }
-});
-
-// Example error route for testing
-app.get('/error', (req, res, next) => {
-  next(new Error('Test error'));
 });
 
 // 404 handler
@@ -53,15 +57,15 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || 'Internal Server Error' });
 });
 
-// Start server and ensure DB connection on startup
+// Start server
 const PORT = process.env.PORT || 5000;
 
 async function start() {
   try {
-    // Ensure DB connection before starting
     await prisma.$connect();
     app.listen(PORT, () => {
       console.log(`Server listening on port ${PORT}`);
+      console.log(`Health check: https://caseflow-1-i13x.onrender.com/health`);
     });
   } catch (err) {
     console.error('Failed to start server due to DB connection error:', err);
@@ -74,18 +78,12 @@ start();
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.info('SIGINT received: closing Prisma client');
-  try {
-    await prisma.$disconnect();
-  } finally {
-    process.exit(0);
-  }
+  await prisma.$disconnect();
+  process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.info('SIGTERM received: closing Prisma client');
-  try {
-    await prisma.$disconnect();
-  } finally {
-    process.exit(0);
-  }
+  await prisma.$disconnect();
+  process.exit(0);
 });
