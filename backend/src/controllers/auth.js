@@ -70,50 +70,73 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', async (req, res, next) => {
+  const requestId = req.requestId || `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   try {
-    const { email, password } = loginSchema.parse(req.body);
+    console.log(`[AUTH][${requestId}] POST /api/auth/login - start`);
+    console.log(`[AUTH][${requestId}] request body (raw):`, req.body);
 
-    // Find user
+    const { email, password } = req.body || {};
+
+    // Basic validation
+    if (!email || !password) {
+      console.warn(`[AUTH][${requestId}] Missing credentials: email=${!!email}, password=${!!password}`);
+      return res.status(400).json({ error: 'Missing email or password' });
+    }
+
+    // Log the Prisma intent (do NOT log sensitive fields)
+    console.log(`[AUTH][${requestId}] Prisma: findUnique user where { email: "${email}" }`);
     const user = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, email: true, role: true, passwordHash: true },
+      where: { email }
     });
 
+    // Log what Prisma returned (mask/omit sensitive hashes)
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      console.warn(`[AUTH][${requestId}] Prisma returned null (user not found) for email=${email}`);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    console.log(`[AUTH][${requestId}] Prisma returned user: { id: ${user.id}, email: ${user.email}, name: ${user.name} }`);
+
+    // Ensure user.password exists
+    if (!user.password) {
+      console.error(`[AUTH][${requestId}] User record missing password hash for id=${user.id}.`);
+      // Provide a helpful 500-level message for admins; client gets generic message
+      return res.status(500).json({ error: 'Account misconfigured. Contact support.' });
     }
 
-    // Compare password
-    const isValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    // Compare password using bcrypt
+    console.log(`[AUTH][${requestId}] bcrypt.compare: comparing provided password with stored hash`);
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    console.log(`[AUTH][${requestId}] bcrypt.compare result: ${passwordMatch}`);
+
+    if (!passwordMatch) {
+      console.warn(`[AUTH][${requestId}] Invalid credentials for user id=${user.id}`);
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Generate JWT
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      console.error('JWT_SECRET not set in environment');
-      return res.status(500).json({ error: 'Authentication not configured' });
+    // Issue JWT (ensure JWT_SECRET is set)
+    const jwtSecret = process.env.JWT_SECRET || 'dev_secret';
+    if (!process.env.JWT_SECRET) {
+      console.warn(`[AUTH][${requestId}] Warning: JWT_SECRET not set, using fallback (development only)`);
     }
+    const token = jwt.sign({ sub: user.id, email: user.email }, jwtSecret, { expiresIn: '7d' });
+    console.log(`[AUTH][${requestId}] Issued JWT for user id=${user.id}`);
 
-    const authExpires = process.env.JWT_EXPIRES || '1h';
-    const token = jwt.sign(
-      { userId: user.id, role: user.role },
-      jwtSecret,
-      { expiresIn: authExpires }
-    );
-
-    // Remove passwordHash from response
-    const { passwordHash, ...userWithoutPassword } = user;
-
-    res.json({ token, user: userWithoutPassword });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors[0].message });
-    }
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    // Return minimal user info + token
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name
+      }
+    });
+  } catch (err) {
+    // Full error log for server-side debugging; forwarded to global error handler as well
+    console.error(`[AUTH][${requestId}] ERROR during login:`, err);
+    // Attach requestId to error for easier tracing in global logs
+    err.meta = { requestId };
+    return next(err);
   }
 });
 

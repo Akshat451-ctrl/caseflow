@@ -13,63 +13,85 @@ export const prisma = globalThis.__prismaClient;
 const app = express();
 
 // ======================================
-// 🚀 FINAL CORS FIX (100% WORKING)
+// Robust, production-ready CORS (uses 'cors' package)
 // ======================================
+
 const allowedOrigins = [
-  "http://localhost:5173",
-  "https://caseflow-skyclaudr.vercel.app",
-  "https://caseflow-1-i13x.onrender.com",
+  'https://caseflow-1-i13x.onrender.com',
+  // add any explicit production host(s) here
 ];
 
-// Log every incoming origin
-app.use((req, res, next) => {
-  console.log("[CORS] Incoming Origin:", req.headers.origin);
-  next();
-});
-
-// Main CORS Handling
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow postman/mobile where origin = undefined
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      console.warn("[CORS] BLOCKED Origin:", origin);
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// Preflight (OPTIONS) handler — handle via middleware to avoid route parsing
-app.use((req, res, next) => {
-  if (req.method !== 'OPTIONS') return next();
-
-  const origin = req.headers.origin;
-
-  if (!origin || allowedOrigins.includes(origin)) {
-    // If no origin (non-browser clients) allow. If origin is allowed, echo it.
-    res.header('Access-Control-Allow-Origin', origin || '*');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    return res.sendStatus(204);
+// safe check for localhost / 127.0.0.1 and Vercel preview domains
+const isLocalOrVercel = (origin) => {
+  if (!origin) return false;
+  // origin can include protocol + host, e.g. "http://localhost:3000"
+  try {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+    if (/^https?:\/\/[A-Za-z0-9-]+\.vercel\.app$/.test(origin)) return true;
+  } catch (e) {
+    // defensive: never throw from origin checks
+    return false;
   }
+  return false;
+};
 
-  console.warn('[CORS] BLOCKED Preflight:', origin);
-  return res.status(403).send('Not allowed by CORS');
+const corsOptions = {
+  origin: (origin, callback) => {
+    // allow non-browser clients (no origin header)
+    if (!origin) return callback(null, true);
+
+    // explicit list match or localhost/vercel patterns
+    if (allowedOrigins.includes(origin) || isLocalOrVercel(origin)) {
+      // allow this origin
+      return callback(null, true);
+    }
+
+    // do NOT throw an error here — caller will simply not get CORS headers
+    // returning false prevents the cors middleware from setting CORS headers
+    return callback(null, false);
+  },
+  credentials: true, // Access-Control-Allow-Credentials: true
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204,
+};
+
+// apply CORS to all routes
+app.use(cors(corsOptions));
+
+// handle preflight requests explicitly (valid route pattern)
+// app.options('/*', cors(corsOptions));
+
+// keep a simple origin log for debugging (does not affect behavior)
+app.use((req, res, next) => {
+  console.log('[CORS] incoming origin:', req.headers.origin);
+  next();
 });
 
 // ======================================
 // Body Parser
 // ======================================
 app.use(express.json());
+
+// Log POST /api/auth/login bodies to help debug the 500
+app.use((req, res, next) => {
+  if (req.path === '/api/auth/login' && req.method === 'POST') {
+    console.log('[LOGIN] incoming body:', req.body);
+  }
+  next();
+});
+
+// --- NEW: request logger for /api/auth to correlate requests with errors ---
+app.use('/api/auth', (req, res, next) => {
+  const requestId = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  req.requestId = requestId;
+  console.log(`[REQ ${requestId}] ${req.method} ${req.originalUrl} - body:`, req.body || {});
+  res.on('finish', () => {
+    console.log(`[REQ ${requestId}] ${req.method} ${req.originalUrl} => ${res.statusCode}`);
+  });
+  next();
+});
+// --- end new ---
 
 // ======================================
 // Routes
@@ -101,10 +123,32 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not Found" });
 });
 
-// Error handler
+// Error handler - improved logging and conditional stack in response
 app.use((err, req, res, next) => {
-  console.error("[SERVER ERROR]", err);
-  res.status(err.status || 500).json({ error: err.message });
+  // ensure we have requestId if available
+  const rid = req?.requestId ? ` [REQ ${req.requestId}]` : '';
+  console.error(`${rid} [SERVER ERROR]`, err);
+  const status = err.status || 500;
+  const payload = {
+    error: err.message || 'Internal Server Error'
+  };
+  // expose stack in non-production to speed debugging
+  if (process.env.NODE_ENV !== 'production') {
+    payload.stack = err.stack;
+    // include any additional error details if present
+    if (err?.meta) payload.meta = err.meta;
+  }
+  res.status(status).json(payload);
+});
+
+// Add global process-level error logging to capture uncaught/unhandled errors
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[UNHANDLED REJECTION] reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err);
+  // note: in production you may want to exit process after logging
 });
 
 // ======================================
