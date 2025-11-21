@@ -14,12 +14,10 @@ const app = express();
 
 // === CORS FIX - IMPORTANT! ===
 app.use(cors({
-  origin: [
-    "http://localhost:5173",                            // local development
-    "https://caseflow-skyclaudventures.vercel.app",     // तुम्हारा live frontend
-    // अगर तुम कोई और domain बनाओ तो यहाँ add कर देना
-  ],
-  credentials: true,  // ये जरूरी है token/cookie के लिए
+  origin: true,               
+  credentials: true,             
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 app.use(express.json());
