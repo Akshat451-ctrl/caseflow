@@ -4,11 +4,15 @@ import { toast } from 'react-hot-toast';
 // FINAL FIX - NO MORE LOCALHOST - 100% LIVE BACKEND
 const BACKEND_URL = import.meta.env.VITE_API_URL || 'https://caseflow-1-i13x.onrender.com';
 
-console.log('FRONTEND CONNECTING TO →', BACKEND_URL); 
+console.log('FRONTEND CONNECTING TO →', BACKEND_URL);
 
+// Quick workaround: disable `withCredentials` so browsers don't require
+// Access-Control-Allow-Origin to be exact when credentials are sent.
+// Only do this if your auth does NOT rely on cookies. You use Bearer tokens
+// saved in localStorage, so this is safe for testing.
 const api = axios.create({
-  baseURL: 'https://caseflow-1-i13x.onrender.com',
-  withCredentials: true,
+  baseURL: BACKEND_URL,
+  withCredentials: false,
   headers: { 'Content-Type': 'application/json' },
 });
 
