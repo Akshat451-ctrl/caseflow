@@ -7,7 +7,8 @@
   "scripts": {
   "dev": "nodemon src/index.js",
   "migrate": "npx prisma migrate dev",
-  "studio": "npx prisma studio"
+  "studio": "npx prisma studio",
+    "start": "node src/index.js"
 },
   "keywords": [],
   "author": "",
