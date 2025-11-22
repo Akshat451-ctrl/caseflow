@@ -37,7 +37,7 @@ model User {
   cases        Case[]    @relation("ImportedBy")
   notes        Note[]
 
-  @@map("users")
+ @@map("users")
 }
 
 model Case {
