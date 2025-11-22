@@ -94,9 +94,9 @@ export default function Login() {
         const res = await api.post('/api/auth/register', payload);
         console.log('[AUTH] Register response:', res?.status, res?.data); // debug response
         const { token, user } = res.data;
-        setAuth(token, user);
+        //setAuth(token, user);
         toast.success('Account created — welcome!');
-        navigate('/upload');
+        navigate('/login');
       }
     } catch (err) {
       // Enhanced error logging for easier diagnosis - stringify for full console output

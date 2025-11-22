@@ -19,9 +19,9 @@ export default function Register() {
     try {
       const res = await api.post('/api/auth/register', { email, password });
       const { token, user } = res.data;
-      setAuth(token, user);
+      // setAuth(token, user);
       toast.success('Account created and signed in');
-      navigate('/upload');
+      navigate('/login');
     } catch (err) {
       console.error('Register error', err);
       setError(err.response?.data?.error || 'Registration failed');

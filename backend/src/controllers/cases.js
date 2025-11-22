@@ -306,17 +306,25 @@ router.get('/:caseId', authMiddleware, async (req, res) => {
   try {
     const { caseId } = req.params;
     if (!caseId) return res.status(400).json({ error: 'Missing caseId' });
-    // Try to find by primary id first; if not found, fall back to case_id (business id)
+
+    // Determine if caseId is a UUID (dashed or simple 32-hex)
+    const isUuid = typeof caseId === 'string' && /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i.test(caseId);
+
     let caseItem = null;
-    caseItem = await prisma.case.findUnique({
-      where: { id: String(caseId) },
-      include: {
-        importedBy: { select: { id: true, email: true } },
-        notes: { include: { author: { select: { id: true, email: true } } }, orderBy: { createdAt: 'desc' } },
-      },
-    });
+
+    if (isUuid) {
+      // Safe to query primary id as UUID
+      caseItem = await prisma.case.findUnique({
+        where: { id: String(caseId) },
+        include: {
+          importedBy: { select: { id: true, email: true } },
+          notes: { include: { author: { select: { id: true, email: true } } }, orderBy: { createdAt: 'desc' } },
+        },
+      });
+    }
+
     if (!caseItem) {
-      // fallback: search by case_id field (business-facing case id)
+      // Fallback: search by business case_id (safe for non-UUID identifiers)
       caseItem = await prisma.case.findUnique({
         where: { case_id: String(caseId) },
         include: {
@@ -326,7 +334,7 @@ router.get('/:caseId', authMiddleware, async (req, res) => {
       });
     }
 
-  if (!caseItem) return res.status(404).json({ error: 'Case not found' });
+    if (!caseItem) return res.status(404).json({ error: 'Case not found' });
 
     // Try to find the ImportLog that matches the importedAt timestamp and user
     let importLog = null;
