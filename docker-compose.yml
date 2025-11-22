@@ -10,22 +10,28 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: caseflow
     ports:
-      - "5432:5432"
+      - "5432:5432"          # expose proper postgres port (host:container)
+    env_file:
+      - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   backend:
     build: ./backend
+    container_name: caseflow-backend
     ports:
       - "5000:5000"
     depends_on:
       - postgres
     environment:
+      # IMPORTANT: use the 'postgres' hostname (service name), not localhost, so containers can reach DB
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/caseflow?schema=public
       - JWT_SECRET=my-super-secret-jwt-key-2025
       - PORT=5000
+      - NODE_ENV=development
     volumes:
       - ./backend:/app
+    # (do not add an env_file that sets DATABASE_URL to localhost)
 
 volumes:
   postgres_data:

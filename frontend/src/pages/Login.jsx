@@ -99,15 +99,15 @@ export default function Login() {
         navigate('/upload');
       }
     } catch (err) {
-      // Enhanced error logging for easier diagnosis
-      console.error('[AUTH ERROR]', {
+      // Enhanced error logging for easier diagnosis - stringify for full console output
+      const debugObj = {
         message: err?.message,
         status: err?.response?.status,
         responseData: err?.response?.data,
         stack: err?.stack
-      });
+      };
+      console.error('[AUTH ERROR]', JSON.stringify(debugObj, null, 2));
 
-      // Prefer structured server message, fall back to full response JSON for debugging
       const serverMsg = err?.response?.data?.error || err?.response?.data?.message;
       const serverDebug = err?.response?.data && typeof err.response.data === 'object'
         ? JSON.stringify(err.response.data)
@@ -115,7 +115,6 @@ export default function Login() {
 
       const message = serverMsg || err.message || 'Authentication failed';
 
-      // show both concise message and a developer toast with status + raw body
       toast.error(message);
       if (err?.response?.status) {
         toast('Server: ' + err.response.status + (serverDebug ? ` — ${serverDebug}` : ''), { icon: 'ℹ️' });

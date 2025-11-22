@@ -1,5 +1,14 @@
+// Load environment only when appropriate: do NOT override runtime-provided DATABASE_URL (e.g. in Docker / Render).
 import dotenv from "dotenv";
-dotenv.config();
+if (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_URL) {
+  // local development: load .env if DATABASE_URL not already set
+  dotenv.config();
+  console.log('[CONFIG] Loaded .env into process.env for local development');
+} else {
+  // production or DATABASE_URL already present: skip loading .env to avoid overriding platform envs
+  console.log('[CONFIG] Skipping dotenv load (NODE_ENV=%s, DATABASE_URL present=%s)', process.env.NODE_ENV, !!process.env.DATABASE_URL);
+}
+
 import express from "express";
 import cors from "cors";
 import { PrismaClient } from "@prisma/client";
@@ -46,8 +55,7 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    // do NOT throw an error here — caller will simply not get CORS headers
-    // returning false prevents the cors middleware from setting CORS headers
+
     return callback(null, false);
   },
   credentials: true, // Access-Control-Allow-Credentials: true
@@ -56,21 +64,13 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// apply CORS to all routes
 app.use(cors(corsOptions));
 
-// handle preflight requests explicitly (valid route pattern)
-// app.options('/*', cors(corsOptions));
-
-// keep a simple origin log for debugging (does not affect behavior)
 app.use((req, res, next) => {
   console.log('[CORS] incoming origin:', req.headers.origin);
   next();
 });
 
-// ======================================
-// Body Parser
-// ======================================
 app.use(express.json());
 
 // Log POST /api/auth/login bodies to help debug the 500
@@ -118,6 +118,40 @@ app.get("/health", async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.json({
+    message: 'CaseFlow API is live! 🎉',
+    endpoints: {
+      health: '/health',
+      auth: '/api/auth/login',
+      cases: '/api/cases/batch',
+    },
+    docs: 'See README for full API docs'
+  });
+});
+
+// Lightweight debug endpoint to verify DB connectivity and JWT config (safe to call from browser)
+app.get('/api/debug', async (req, res) => {
+  const info = {
+    nodeEnv: process.env.NODE_ENV || 'undefined',
+    jwtConfigured: !!process.env.JWT_SECRET,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    // quick DB ping
+    await prisma.$queryRaw`SELECT 1`;
+    info.dbConnected = true;
+    return res.json(info);
+  } catch (err) {
+    console.error('[DEBUG] DB ping failed:', err);
+    info.dbConnected = false;
+    // include short error message (do not leak full connection strings)
+    info.dbError = String(err?.message || err).slice(0, 500);
+    return res.status(500).json(info);
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: "Not Found" });
@@ -151,22 +185,39 @@ process.on('uncaughtException', (err) => {
   // note: in production you may want to exit process after logging
 });
 
-// ======================================
-// Start Server
-// ======================================
 const PORT = process.env.PORT || 5000;
 
+// Improve Prisma startup logging to make DB errors clearer
 async function start() {
   try {
+    const rawDbUrl = process.env.DATABASE_URL || '';
+    let dbHost = '(none)';
+    let dbPort = '(none)';
+    try {
+      if (rawDbUrl) {
+        const parsed = new URL(rawDbUrl);
+        dbHost = parsed.hostname;
+        dbPort = parsed.port || (parsed.protocol === 'postgres:' ? '5432' : '(unknown)');
+      }
+    } catch (e) {
+      // ignore parse errors - we'll still attempt to connect and Prisma will report details
+    }
+
+    console.log(`[START] DATABASE_URL host=${dbHost} port=${dbPort} (hidden credentials)`);
+    if (dbHost === 'localhost' || dbHost === '127.0.0.1') {
+      console.warn('[START] WARNING: DATABASE_URL points to localhost. When running inside Docker, use the postgres service hostname (e.g. "postgres") not "localhost".');
+    }
+
+    // Do a lightweight connect attempt
     await prisma.$connect();
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(
-        `💚 Health: https://caseflow-1-i13x.onrender.com/health`
-      );
+      console.log(`💚 Health: https://caseflow-1-i13x.onrender.com/health`);
     });
   } catch (err) {
-    console.error("❌ Server failed:", err);
+    // Prisma initialization errors often mean DATABASE_URL is wrong/unreachable
+    console.error('❌ Failed to start server due to DB connection error:', err);
+    console.error('Check DATABASE_URL, ensure the database is running and reachable from this host.');
     process.exit(1);
   }
 }
