@@ -25,15 +25,22 @@ const magicSchema = z.object({ email: z.string().email('Invalid email') });
 router.post('/register', async (req, res) => {
   try {
     const { email, password } = registerSchema.parse(req.body);
-
+    //return res.status(200).json({email: email, password: password});
     // Check if user exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
-
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
+    //return res.status(200).json({status: 'ok'});
+    // Hash password (defensive: coerce to string and catch errors)
+    let passwordHash;
+    try {
+      const pwd = String(password);
+      passwordHash = await bcrypt.hash(pwd, 10);
+    } catch (hashErr) {
+      console.error('bcrypt.hash error (register):', hashErr);
+      return res.status(500).json({ error: 'Failed to process password' });
+    }
 
     // Create user
     const user = await prisma.user.create({
@@ -113,9 +120,12 @@ router.post('/login', async (req, res) => {
 
     // Compare password
     console.log(`[AUTH][${requestId}] bcrypt.compare start`);
+    // Defensive compare: coerce both values to string before comparing
     let passwordMatch = false;
     try {
-      passwordMatch = await bcrypt.compare(password, user.passwordHash);
+      const plain = String(password);
+      const hash = String(user.passwordHash);
+      passwordMatch = await bcrypt.compare(plain, hash);
     } catch (bcryptErr) {
       console.error(`[AUTH][${requestId}] bcrypt.compare error:`, bcryptErr);
       return res.status(500).json({ error: 'Internal server error', requestId, details: 'Password verification failed' });
@@ -175,7 +185,13 @@ router.post('/magic-login', async (req, res) => {
     if (!user) {
       // create a user with random passwordHash (not used)
       const randomPass = Math.random().toString(36).slice(2, 12);
-      const passwordHash = await bcrypt.hash(randomPass, 10);
+      let passwordHash;
+      try {
+        passwordHash = await bcrypt.hash(String(randomPass), 10);
+      } catch (hashErr) {
+        console.error('bcrypt.hash error (magic-login create):', hashErr);
+        return res.status(500).json({ error: 'Failed to create user' });
+      }
       user = await prisma.user.create({ data: { email, passwordHash, role: 'OPERATOR' }, select: { id: true, email: true, role: true } });
     }
 
@@ -257,7 +273,13 @@ router.post('/verify-magic', async (req, res) => {
     let user = await prisma.user.findUnique({ where: { email }, select: { id: true, email, role: true } });
     if (!user) {
       const randomPass = Math.random().toString(36).slice(2, 12);
-      const passwordHash = await bcrypt.hash(randomPass, 10);
+      let passwordHash;
+      try {
+        passwordHash = await bcrypt.hash(String(randomPass), 10);
+      } catch (hashErr) {
+        console.error('bcrypt.hash error (verify-magic create):', hashErr);
+        return res.status(500).json({ error: 'Failed to create user' });
+      }
       user = await prisma.user.create({ data: { email, passwordHash, role: 'OPERATOR' }, select: { id: true, email: true, role: true } });
     }
 

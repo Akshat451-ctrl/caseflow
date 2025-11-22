@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { AgGridReact } from "ag-grid-react";
 import { parse } from "papaparse";
-import axios from "axios";
+import api from "../lib/api";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
@@ -20,6 +20,11 @@ const zodLikeValidation = (value, type) => {
 export default function Upload() {
   const [rowData, setRowData] = useState([]);
   const [columnDefs, setColumnDefs] = useState([]);
+  // expected DB columns (keep in sync with prisma schema)
+  const expectedColumns = ['case_id','applicant_name','dob','email','phone','category','priority','status'];
+  const [missingColumns, setMissingColumns] = useState([]);
+  const [extraColumns, setExtraColumns] = useState([]);
+  const [columnWarningAccepted, setColumnWarningAccepted] = useState(false);
   const [invalidCount, setInvalidCount] = useState(0);
   const gridRef = useRef();
   const inputRef = useRef();
@@ -60,7 +65,16 @@ export default function Upload() {
     parse(file, {
       header: true,
       complete: (results) => {
-        const cols = Object.keys(results.data[0]).map((key) => ({
+        const parsedHeaders = (results.meta && results.meta.fields) ? results.meta.fields : (results.data[0] ? Object.keys(results.data[0]) : []);
+        // compute mismatch
+        const missing = expectedColumns.filter((c) => !parsedHeaders.includes(c));
+        const extra = parsedHeaders.filter((c) => !expectedColumns.includes(c));
+        setMissingColumns(missing);
+        setExtraColumns(extra);
+        // reset acknowledgement when new file loaded
+        setColumnWarningAccepted(false);
+
+        const cols = (results.data[0] ? Object.keys(results.data[0]) : parsedHeaders).map((key) => ({
           field: key,
           editable: true,
           cellClassRules: {
@@ -83,6 +97,36 @@ export default function Upload() {
     });
   };
 
+  // UI helper to render column mismatch banner
+  function ColumnMismatchBanner() {
+    if (!missingColumns.length && !extraColumns.length) return null;
+    return (
+      <div className="mb-4 p-4 border rounded bg-yellow-50 border-yellow-300">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="font-semibold text-yellow-800">Column mismatch detected</div>
+            <div className="text-sm text-yellow-700 mt-1">The uploaded file headers do not match the database columns. Some data may be lost or not imported.</div>
+            <div className="mt-2 text-sm">
+              {missingColumns.length > 0 && <div><strong>Missing columns:</strong> {missingColumns.join(', ')}</div>}
+              {extraColumns.length > 0 && <div className="mt-1"><strong>Extra columns:</strong> {extraColumns.join(', ')}</div>}
+            </div>
+            <div className="mt-2 text-xs text-gray-600">Tip: rename CSV headers to match database columns to ensure a safe import.</div>
+          </div>
+          <div className="ml-4 flex flex-col items-end gap-2">
+            {!columnWarningAccepted ? (
+              <>
+                <button onClick={() => setColumnWarningAccepted(true)} className="px-3 py-1 bg-yellow-600 text-white rounded">Proceed anyway</button>
+                <button onClick={() => { setRowData([]); setColumnDefs([]); setMissingColumns([]); setExtraColumns([]); }} className="px-3 py-1 bg-gray-100 rounded text-sm">Discard file</button>
+              </>
+            ) : (
+              <div className="text-sm text-green-700">Acknowledged — you may proceed</div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const fixAll = (type) => {
     const updated = rowData.map((row) => {
       const newRow = { ...row };
@@ -101,6 +145,9 @@ export default function Upload() {
   };
 
   const submitBatch = async () => {
+    if (!columnWarningAccepted && (missingColumns.length > 0 || extraColumns.length > 0)) {
+      return toast.error('Please review column mismatch and "Proceed anyway" or fix headers.');
+    }
     if (invalidCount > 0) {
       toast.error("Fix all red cells first!");
       return;
@@ -110,21 +157,17 @@ export default function Upload() {
     let success = 0, failed = 0;
 
     for (let i = 0; i < rowData.length; i += batchSize) {
-      const batch = rowData.slice(i, i + batchSize);
-      try {
-        await axios.post(
-          "http://localhost:5000/api/cases/batch",
-          batch,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        success += batch.length;
-        toast.success(`Batch ${i / batchSize + 1} uploaded`);
-      } catch (err) {
-        failed += batch.length;
-        const serverMsg = err?.response?.data?.message || err?.response?.data?.error;
-        toast.error(`Batch ${i / batchSize + 1} failed: ${serverMsg || err.message}`);
-      }
-    }
+       const batch = rowData.slice(i, i + batchSize);
+       try {
+        await api.post('/api/cases/batch', batch);
+         success += batch.length;
+         toast.success(`Batch ${i / batchSize + 1} uploaded`);
+       } catch (err) {
+         failed += batch.length;
+         const serverMsg = err?.response?.data?.message || err?.response?.data?.error;
+         toast.error(`Batch ${i / batchSize + 1} failed: ${serverMsg || err.message}`);
+       }
+     }
 
     toast.success(`Complete! Success: ${success} | Failed: ${failed}`);
     navigate("/cases");
@@ -133,6 +176,9 @@ export default function Upload() {
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">Upload CSV</h1>
+
+      {/* Column mismatch warning */}
+      <ColumnMismatchBanner />
 
       {/* Drag & Drop */}
       <div
