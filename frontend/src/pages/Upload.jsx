@@ -26,6 +26,9 @@ export default function Upload() {
   const [extraColumns, setExtraColumns] = useState([]);
   const [columnWarningAccepted, setColumnWarningAccepted] = useState(false);
   const [invalidCount, setInvalidCount] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ totalBatches: 0, completed: 0, success: 0, failed: 0 });
+
   const gridRef = useRef();
   const inputRef = useRef();
   const navigate = useNavigate();
@@ -134,9 +137,16 @@ export default function Upload() {
         if (type === "trim") newRow[key] = row[key]?.trim() || row[key];
         if (type === "title" && key.toLowerCase().includes("name"))
           newRow[key] = row[key]?.replace(/\b\w/g, (c) => c.toUpperCase());
-        if (type === "phone" && row[key] && !row[key].toString().startsWith("+91"))
-          newRow[key] = "+91" + row[key].toString().replace(/\D/g, "").slice(-10);
-        if (type === "priority") newRow[key] = "LOW";
+        // Only apply phone normalization to columns whose key includes "phone"
+        if (type === "phone" && key.toLowerCase().includes("phone") && row[key]) {
+          const digits = row[key].toString().replace(/\D/g, "");
+          const last10 = digits.slice(-10);
+          newRow[key] = last10 ? `+91${last10}` : row[key];
+        }
+        // Only update columns that appear to be the priority column
+        if (type === "priority" && key.toLowerCase().includes("priority")) {
+          newRow[key] = "LOW";
+        }
       });
       return newRow;
     });
@@ -144,33 +154,91 @@ export default function Upload() {
     toast.success("Applied to all rows!");
   };
 
+  // helper to chunk array on frontend
+  const chunkArray = (arr, size) => {
+    const chunks = [];
+    for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+    return chunks;
+  };
+
   const submitBatch = async () => {
     if (!columnWarningAccepted && (missingColumns.length > 0 || extraColumns.length > 0)) {
       return toast.error('Please review column mismatch and "Proceed anyway" or fix headers.');
     }
     if (invalidCount > 0) {
-      toast.error("Fix all red cells first!");
-      return;
+      return toast.error("Fix all red cells first!");
     }
 
     const batchSize = 100;
-    let success = 0, failed = 0;
+    const batches = chunkArray(rowData, batchSize);
+    const totalBatches = batches.length;
+    if (totalBatches === 0) return toast.error('No rows to upload');
 
-    for (let i = 0; i < rowData.length; i += batchSize) {
-       const batch = rowData.slice(i, i + batchSize);
-       try {
-        await api.post('/api/cases/batch', batch);
-         success += batch.length;
-         toast.success(`Batch ${i / batchSize + 1} uploaded`);
-       } catch (err) {
-         failed += batch.length;
-         const serverMsg = err?.response?.data?.message || err?.response?.data?.error;
-         toast.error(`Batch ${i / batchSize + 1} failed: ${serverMsg || err.message}`);
-       }
-     }
+    setUploading(true);
+    setUploadProgress({ totalBatches, completed: 0, success: 0, failed: 0 });
 
-    toast.success(`Complete! Success: ${success} | Failed: ${failed}`);
-    navigate("/cases");
+    // single toast that we'll update
+    const toastId = toast.loading(`Uploading 0/${totalBatches} batches...`, { duration: Infinity });
+
+    const concurrency = 4; // tune this (4 is a reasonable default)
+    let pointer = 0;
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      while (pointer < totalBatches) {
+        const window = batches.slice(pointer, pointer + concurrency);
+        const promises = window.map((batch) =>
+          api.post('/api/cases/batch', batch).then(
+            (res) => ({ ok: true, res }),
+            (err) => ({ ok: false, err })
+          )
+        );
+
+        const results = await Promise.all(promises);
+
+        // update counts
+        for (const r of results) {
+          if (r.ok) {
+            successCount += 1 * batchSize; // approximate: count rows as batchSize (backend may reject partial rows)
+          } else {
+            failCount += 1 * batchSize;
+            console.error('Batch error detail:', r.err?.response?.data || r.err?.message || r.err);
+          }
+        }
+
+        pointer += concurrency;
+        const completed = Math.min(pointer, totalBatches);
+        setUploadProgress((p) => ({ ...p, completed, success: successCount, failed: failCount }));
+        // update toast message in-place
+        toast(`Uploading ${completed}/${totalBatches} batches...`, { id: toastId, duration: Infinity });
+      }
+
+      // final summary - refine counts: if you prefer exact row-level success, adjust backend to return counts per batch
+      // Dismiss the loading toast and show a timed success toast so it does not persist across refresh/navigation
+      toast.dismiss(toastId);
+      toast.success(`Upload complete — approx success: ${successCount} rows, failed: ${failCount} rows`, { duration: 3000 });
+
+      // optional: clear data after successful upload
+      setRowData([]);
+      setColumnDefs([]);
+      setMissingColumns([]);
+      setExtraColumns([]);
+      setColumnWarningAccepted(false);
+      setInvalidCount(0);
+      navigate('/cases');
+    } catch (err) {
+      console.error('Upload error:', err);
+      // Ensure the loading toast is dismissed, then show an error toast that auto-hides
+      toast.dismiss(toastId);
+      toast.error('Upload failed — check console for details', { duration: 7000 });
+    } finally {
+      setUploading(false);
+      setUploadProgress((p) => ({ ...p, completed: p.totalBatches }));
+      // Defensive: ensure any lingering loading toast is removed
+      try { toast.dismiss(toastId); } catch (e) {}
+      // allow final toast to be visible then dismiss if needed
+    }
   };
 
   return (

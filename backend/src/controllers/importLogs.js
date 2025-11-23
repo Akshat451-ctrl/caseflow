@@ -61,4 +61,75 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// --- UPDATED: delete an import log and its failed rows (notes -> cases -> importLog) ---
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const log = await prisma.importLog.findUnique({ where: { id } });
+    if (!log) return res.status(404).json({ error: 'ImportLog not found' });
+
+    // only allow owner or ADMIN to delete
+    const requesterId = req.user?.userId;
+    const requesterRole = req.user?.role;
+    if (requesterId !== log.userId && requesterRole !== 'ADMIN') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Use a safe time window around the import log timestamp to find failed rows.
+    // This avoids issues where timestamps may differ by a few milliseconds or DB precision.
+    const createdAt = log.createdAt ? new Date(log.createdAt) : null;
+    const timeWindowMs = 5000; // 5 seconds tolerance
+    let failedCaseIds = [];
+
+    if (createdAt && !isNaN(createdAt.getTime())) {
+      const start = new Date(createdAt.getTime() - timeWindowMs);
+      const end = new Date(createdAt.getTime() + timeWindowMs);
+
+      const failedCases = await prisma.case.findMany({
+        where: {
+          AND: [
+            { importedAt: { gte: start, lte: end } },
+            {
+              OR: [
+                { errorMessage: { not: null } },
+                { status: 'FAILED' }
+              ]
+            }
+          ]
+        },
+        select: { id: true },
+      });
+      failedCaseIds = failedCases.map((c) => c.id);
+    } else {
+      // Fallback: if log.createdAt missing/unparseable, find by userId + FAILED status + recent rows
+      const fallbackCases = await prisma.case.findMany({
+        where: {
+          importedById: log.userId,
+          status: 'FAILED'
+        },
+        orderBy: { importedAt: 'desc' },
+        take: 1000,
+        select: { id: true },
+      });
+      failedCaseIds = fallbackCases.map((c) => c.id);
+    }
+
+    // Transaction: delete notes referencing the failed cases, delete failed cases, delete importLog
+    await prisma.$transaction(async (tx) => {
+      if (failedCaseIds.length > 0) {
+        await tx.note.deleteMany({ where: { caseId: { in: failedCaseIds } } });
+        await tx.case.deleteMany({ where: { id: { in: failedCaseIds } } });
+      }
+      await tx.importLog.delete({ where: { id } });
+    });
+
+    console.log(`ImportLog ${id} deleted by ${requesterId || 'unknown'}; removed ${failedCaseIds.length} failed cases.`);
+    return res.json({ ok: true, deletedCases: failedCaseIds.length, deletedImportLogId: id });
+  } catch (err) {
+    console.error('Failed to delete import log:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+// --- end updated ---
+
 export default router;

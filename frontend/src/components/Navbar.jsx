@@ -4,6 +4,19 @@ import { useAuthStore } from '../store/authStore';
 
 export default function Navbar() {
   const user = useAuthStore((s) => s.user);
+
+  // derive a friendly display name:
+  const getDisplayName = (u) => {
+    if (!u) return '';
+    if (u.name && String(u.name).trim()) return String(u.name).trim();
+    if (u.email && String(u.email).includes('@')) {
+      const local = String(u.email).split('@')[0];
+      // split on dots, dashes, underscores or spaces and Title Case
+      return local.split(/[\.\-_ ]+/).map(p => p ? p.charAt(0).toUpperCase() + p.slice(1) : '').join(' ');
+    }
+    return u.email || '';
+  };
+  const displayName = getDisplayName(user);
   const clearAuth = useAuthStore((s) => s.clearAuth);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -43,7 +56,7 @@ export default function Navbar() {
 
           {/* Right: user area */}
           <div className="hidden md:flex items-center gap-4">
-            <div className="text-white text-sm">Welcome{user?.email ? ',' : ''} <span className="font-semibold">{user?.email}</span></div>
+            <div className="text-white text-sm">Welcome{displayName ? ',' : ''} <span className="font-semibold">{displayName || user?.email}</span></div>
             <button
               onClick={logout}
               className="ml-2 px-3 py-2 bg-red-600 text-white rounded-md font-medium transform transition-transform duration-150 hover:scale-105 hover:bg-red-700 shadow-md"
@@ -78,7 +91,7 @@ export default function Navbar() {
           <Link to="/import-reports" onClick={() => setOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-white hover:shadow-xl hover:shadow-yellow-400/30">Reports</Link>
 
           <div className="border-t border-white/20 mt-2 pt-2">
-            <div className="px-3 py-2 text-white text-sm">Welcome{user?.email ? ',' : ''} <span className="font-semibold">{user?.email}</span></div>
+            <div className="px-3 py-2 text-white text-sm">Welcome{displayName ? ',' : ''} <span className="font-semibold">{displayName || user?.email}</span></div>
             <div className="px-3 py-2">
               <button onClick={() => { setOpen(false); logout(); }} className="w-full px-3 py-2 bg-red-600 text-white rounded-md font-medium hover:scale-105 transform transition">Logout</button>
             </div>

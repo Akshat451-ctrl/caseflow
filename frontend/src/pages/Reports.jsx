@@ -23,6 +23,20 @@ export default function Reports() {
     }
   };
 
+  // Delete import log (with confirmation)
+  const deleteLog = async (id) => {
+    if (!window.confirm('Delete this import report and its failed rows? This cannot be undone.')) return;
+    try {
+      await api.delete(`/api/import-logs/${id}`);
+      toast.success('Import report deleted');
+      // refresh list
+      fetchLogs();
+    } catch (err) {
+      console.error('Failed to delete import log:', err);
+      toast.error(err?.response?.data?.error || 'Delete failed');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -49,12 +63,21 @@ export default function Reports() {
                   <p className="text-sm text-gray-600">Created: {new Date(log.createdAt).toLocaleString()}</p>
                   <p className="text-sm">Total rows: {log.totalRows}, Success: {log.successCount}, Failed: {log.failCount}</p>
                 </div>
-                <Link
-                  to={`/import-report/${log.id}`}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                >
-                  View Details
-                </Link>
+                <div className="flex items-center space-x-2">
+                  <Link
+                    to={`/import-report/${log.id}`}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                  >
+                    View Details
+                  </Link>
+                  <button
+                    onClick={() => deleteLog(log.id)}
+                    className="px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded hover:from-red-600 hover:to-rose-700 shadow-md transform hover:-translate-y-0.5 transition"
+                    title="Delete import and failed rows"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}

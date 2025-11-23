@@ -50,6 +50,54 @@ export default function CaseDetail() {
     }
   }
 
+  // Helper: format errorMessage stored in DB (Zod arrays, objects or plain strings)
+  function formatErrorMessage(raw) {
+    if (!raw) return null;
+    // already a string that's short - return as-is
+    if (typeof raw === 'string') {
+      // try to detect JSON content inside string
+      const trimmed = raw.trim();
+      if ((trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          return extractMessages(parsed);
+        } catch (e) {
+          // not JSON, return raw
+          return trimmed;
+        }
+      }
+      return trimmed;
+    }
+    // If it's an object/array stored directly (unlikely), extract messages
+    try {
+      return extractMessages(raw);
+    } catch (e) {
+      return String(raw);
+    }
+  }
+
+  function extractMessages(obj) {
+    // If obj is an array of Zod issues
+    if (Array.isArray(obj)) {
+      const msgs = obj.map((it) => {
+        if (it && typeof it === 'object' && it.message) return it.message;
+        return String(it);
+      }).filter(Boolean);
+      return msgs.length ? msgs.join('; ') : JSON.stringify(obj);
+    }
+    // If obj has "errors" array (Zod format)
+    if (obj && typeof obj === 'object') {
+      if (Array.isArray(obj.errors)) {
+        return obj.errors.map((e) => e?.message || String(e)).join('; ');
+      }
+      if (obj.message && typeof obj.message === 'string') return obj.message;
+      // fallback stringify small
+      const s = JSON.stringify(obj);
+      return s.length > 100 ? s.slice(0, 200) + '...' : s;
+    }
+    return String(obj);
+  }
+
   if (loading) return <div className="p-6">Loading...</div>;
   if (!data || !data.case) return <div className="p-6">Case not found</div>;
 
@@ -109,7 +157,7 @@ export default function CaseDetail() {
                 </div>
                 <div>
                   <div className="text-sm text-gray-500">Error</div>
-                  <div className="font-medium text-red-600">{c.errorMessage || '-'}</div>
+                  <div className="font-bold text-black">{formatErrorMessage(c.errorMessage) || '-'}</div>
                 </div>
               </div>
             </div>

@@ -82,6 +82,13 @@ router.post('/batch', authMiddleware, async (req, res) => {
     let failCount = 0;
     const errors = [];
 
+    // Precompute last occurrence index per case_id so we use the last row on duplicates
+    const lastIndexForCase = {};
+    raw.forEach((r, idx) => {
+      const cid = r?.case_id;
+      if (cid) lastIndexForCase[String(cid)] = idx;
+    });
+
     const chunks = chunkArray(raw, 100);
 
     // Use a single timestamp for this import to link failed Case rows to the ImportLog
@@ -94,6 +101,15 @@ router.post('/batch', authMiddleware, async (req, res) => {
       for (let i = 0; i < chunk.length; i++) {
         const rowIndex = ci * 100 + i;
         const row = chunk[i];
+
+        const caseIdValue = row?.case_id ? String(row.case_id) : undefined;
+
+        // If this case_id appears later in the file, skip this earlier occurrence and warn (non-fatal)
+        if (caseIdValue && lastIndexForCase[caseIdValue] !== rowIndex) {
+          errors.push({ index: rowIndex, case_id: caseIdValue, error: 'Duplicate case_id in file — later row will be used' });
+          // do not count as fail; continue to next row
+          continue;
+        }
 
         // Validate with Zod
         const parsed = caseSchema.safeParse(row);
@@ -110,11 +126,13 @@ router.post('/batch', authMiddleware, async (req, res) => {
           }
           errors.push({ index: rowIndex, case_id: row?.case_id ?? null, error: msg });
 
-          // Persist failed row as a Case with errorMessage for reporting
+          // Persist failed row as a Case with fallback FAILED id (do NOT use original case_id)
           try {
             const fallbackId = `FAILED-${importTimestamp.getTime()}-${ci}-${i}`;
+            const originalCaseId = row?.case_id ? String(row.case_id) : null;
             const createData = {
-              case_id: row?.case_id ?? fallbackId,
+              // use fallback id so we don't overwrite the business case_id
+              case_id: fallbackId,
               applicant_name: row?.applicant_name ? String(row.applicant_name).trim() : null,
               dob: safeDateFrom(row?.dob),
               email: row?.email ? String(row.email).trim() : null,
@@ -124,12 +142,13 @@ router.post('/batch', authMiddleware, async (req, res) => {
               status: 'FAILED',
               importedById: req.user?.userId ?? null,
               importedAt: importTimestamp,
-              errorMessage: msg,
+              // include original case_id for traceability
+              errorMessage: `Original case_id: ${originalCaseId ?? '<none>'} — ${msg}`,
             };
             try {
               await prisma.case.create({ data: createData });
             } catch (createErr) {
-              // if case_id unique constraint or other DB errors, retry with fallback id
+              // if fallback somehow conflicts, append random suffix and retry
               createData.case_id = `${fallbackId}-${Math.random().toString(36).slice(2, 8)}`;
               await prisma.case.create({ data: createData });
             }
@@ -149,9 +168,24 @@ router.post('/batch', authMiddleware, async (req, res) => {
           if (!isNaN(d.getTime())) dob = d;
         }
 
+        // Use upsert so existing case_id rows are updated (prevents unique constraint errors)
         try {
-          await prisma.case.create({
-            data: {
+          await prisma.case.upsert({
+            where: { case_id: data.case_id },
+            update: {
+              applicant_name: data.applicant_name ?? null,
+              dob: dob,
+              email: data.email ?? null,
+              phone: data.phone ?? null,
+              category: data.category ?? null,
+              priority: data.priority ?? null,
+              // mark re-imported/updated rows as successful so previous FAILED states are cleared
+              status: data.status ?? 'COMPLETED',
+              importedById: req.user?.userId ?? null,
+              importedAt: importTimestamp,
+              errorMessage: null,
+            },
+            create: {
               case_id: data.case_id,
               applicant_name: data.applicant_name ?? null,
               dob: dob,
@@ -159,23 +193,24 @@ router.post('/batch', authMiddleware, async (req, res) => {
               phone: data.phone ?? null,
               category: data.category ?? null,
               priority: data.priority ?? null,
-              status: data.status ?? undefined, // allow DB default if undefined
+              // new records from a successful import should be marked as COMPLETED
+              status: data.status ?? 'COMPLETED',
               importedById: req.user?.userId ?? null,
               importedAt: importTimestamp,
             },
           });
           successCount++;
         } catch (err) {
+          // on unexpected DB error, record and persist as FAILED row (fallback)
           failCount++;
-          // capture constraint and other errors
           const message = err?.message ?? String(err);
           errors.push({ index: rowIndex, case_id: data.case_id, error: message });
 
-          // Persist as failed Case with errorMessage
           try {
             const fallbackId = `FAILED-${importTimestamp.getTime()}-${ci}-${i}`;
             const createData = {
-              case_id: data.case_id ?? fallbackId,
+              // always use fallback id for failed persistence
+              case_id: fallbackId,
               applicant_name: data.applicant_name ? String(data.applicant_name).trim() : null,
               dob: safeDateFrom(data.dob),
               email: data.email ? String(data.email).trim() : null,
@@ -185,7 +220,8 @@ router.post('/batch', authMiddleware, async (req, res) => {
               status: 'FAILED',
               importedById: req.user?.userId ?? null,
               importedAt: importTimestamp,
-              errorMessage: message,
+              // include original case_id for debugging
+              errorMessage: `Original case_id: ${data.case_id ?? '<none>'} — ${message}`,
             };
             try {
               await prisma.case.create({ data: createData });
