@@ -10,7 +10,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
-  const setAuth = useAuthStore((s) => s.setAuth);
+  const clearAuth = useAuthStore((s) => s.clearAuth);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,8 +19,9 @@ export default function Register() {
     try {
       const res = await api.post('/api/auth/register', { email, password });
       const { token, user } = res.data;
-      // setAuth(token, user);
-      toast.success('Account created and signed in');
+      // Ensure we do NOT auto-login: clear any stored auth and send user to login page
+      try { clearAuth(); } catch (e) {}
+      toast.success('Account created. Please sign in.');
       navigate('/login');
     } catch (err) {
       console.error('Register error', err);
