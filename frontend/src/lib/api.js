@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
+import { useAuthStore } from '../store/authStore'; // used for programmatic logout
 
 // FINAL FIX - NO MORE LOCALHOST - 100% LIVE BACKEND
 // const BACKEND_URL = import.meta.env.VITE_API_URL || 'https://caseflow-1-i13x.onrender.com';
@@ -34,11 +35,18 @@ api.interceptors.response.use(
   (err) => {
     try {
       if (err?.response?.status === 401) {
+        // Clear auth from store (which also clears localStorage and cancels timers)
+        try {
+          useAuthStore.getState().clearAuth();
+        } catch (e) {
+          // fallback: clear localStorage
+          try { localStorage.removeItem('token'); localStorage.removeItem('user'); } catch(_) {}
+        }
         const isLogin = window.location.pathname.startsWith('/login');
-        localStorage.removeItem('token');
         if (!isLogin) {
           toast.error('Session expired, please login again');
-          setTimeout(() => { window.location.href = '/login'; }, 600);
+          // redirect immediately to login
+          window.location.href = '/login';
         }
       }
     } catch (e) {}
