@@ -7,13 +7,68 @@ import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { themeQuartz } from "ag-grid-community";
 
+// Normalize and validate helpers --------------------------------------------------
+// Convert priority values from CSV into the numeric representation expected by the DB.
+// Rules:
+// - numeric strings "1","2","3" -> Number(1|2|3)
+// - named values "HIGH" -> 3, "MEDIUM" -> 2, "LOW" -> 1 (case-insensitive)
+// - empty / null / undefined -> null
+// - unknown values are returned as trimmed string so frontend validation and backend will mark them invalid
+function normalizePriority(raw) {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim();
+  if (s === '') return null;
+  // numeric string -> number
+  if (!Number.isNaN(Number(s)) && /^-?\d+$/.test(s)) {
+    const n = Number(s);
+    // Only accept positive integer priorities 1/2/3 here, otherwise leave as string to be invalid
+    if ([1,2,3].includes(n)) return n;
+    // if numeric but outside accepted range, return as string so validation flags it
+    return s;
+  }
+  // named mapping (case-insensitive)
+  const up = s.toUpperCase();
+  if (up === 'HIGH') return 3;
+  if (up === 'MEDIUM') return 2;
+  if (up === 'LOW') return 1;
+  // unknown value -> return original trimmed string so it's shown invalid
+  return s;
+}
+
+// zodLikeValidation: extend priority handling to accept numeric or named values
 const zodLikeValidation = (value, type) => {
-  if (!value) return false;
+  if (!value && value !== 0) return false;
   if (type === "email") return /^\S+@\S+\.\S+$/.test(value);
   if (type === "date") return /^\d{4}-\d{2}-\d{2}$/.test(value);
-  if (type === "phone") return /^(\+91|91)?[6-9]\d{9}$/.test(value.replace(/\s/g, ""));
-  if (type === "category") return ["TAX", "LICENSE", "PERMIT"].includes(value);
-  if (type === "priority") return ["LOW", "MEDIUM", "HIGH"].includes(value);
+  if (type === "phone") return /^(\+91|91)?[6-9]\d{9}$/.test(String(value).replace(/\s/g, ""));
+  if (type === "category") return ["TAX", "LICENSE", "PERMIT"].includes(String(value).toUpperCase());
+
+  if (type === "priority") {
+    // Accept numeric priorities (1,2,3)
+    if (typeof value === 'number') return [1,2,3].includes(value);
+    // Accept numeric strings that represent valid numbers (defensive)
+    if (typeof value === 'string' && /^[0-9]+$/.test(value)) {
+      const n = Number(value);
+      return [1,2,3].includes(n);
+    }
+    // Accept named priorities
+    return ["LOW","MEDIUM","HIGH"].includes(String(value).toUpperCase());
+  }
+
+  // Case ID: must be a non-empty trimmed string (allow letters, numbers, dashes, underscores and spaces)
+  if (type === "case_id") {
+    if (typeof value !== 'string') return false;
+    const s = value.trim();
+    return s.length > 0;
+  }
+  
+  // Status must match the CaseStatus enum in backend
+  if (type === "status") {
+    if (!value && value !== 0) return false;
+    const up = String(value).toUpperCase().trim();
+    return ["NEW", "PROCESSING", "COMPLETED", "FAILED"].includes(up);
+  }
+
   return true;
 };
 
@@ -36,6 +91,20 @@ export default function Upload() {
 
   const validateRow = (row) => {
     let invalid = 0;
+
+    // Explicit check for case_id (required)
+    const caseIdKey = Object.keys(row).find(k => k && k.toLowerCase() === 'case_id');
+    const caseIdVal = caseIdKey ? row[caseIdKey] : undefined;
+    if (!zodLikeValidation(caseIdVal, 'case_id')) invalid++;
+
+    // Explicit check for status (optional but if present must be valid)
+    const statusKey = Object.keys(row).find(k => k && k.toLowerCase() === 'status');
+    const statusVal = statusKey ? row[statusKey] : undefined;
+    // treat empty status as okay (backend will default), but if present validate it
+    if (statusVal !== undefined && statusVal !== null && String(statusVal).trim() !== '') {
+      if (!zodLikeValidation(statusVal, 'status')) invalid++;
+    }
+
     Object.keys(row).forEach((key) => {
       const value = row[key];
       const lowerKey = key.toLowerCase();
@@ -43,7 +112,7 @@ export default function Upload() {
       if (lowerKey.includes("dob") && !zodLikeValidation(value, "date")) invalid++;
       if (lowerKey.includes("phone") && value && !zodLikeValidation(value, "phone")) invalid++;
       if (lowerKey.includes("category") && !zodLikeValidation(value, "category")) invalid++;
-      if (lowerKey.includes("priority") && value && !zodLikeValidation(value, "priority")) invalid++;
+      if (lowerKey.includes("priority") && value !== undefined && value !== null && !zodLikeValidation(value, "priority")) invalid++;
     });
     return invalid > 0;
   };
@@ -77,7 +146,23 @@ export default function Upload() {
         // reset acknowledgement when new file loaded
         setColumnWarningAccepted(false);
 
-        const cols = (results.data[0] ? Object.keys(results.data[0]) : parsedHeaders).map((key) => ({
+        // Normalize rows: apply normalizePriority to the priority column so frontend and backend
+        // consistently see numeric priority values where possible.
+        // Keep invalid values as strings so they are flagged by validation.
+        const normalizedRows = results.data.map((row) => {
+          // Make a shallow copy so we don't mutate papaparse internals
+          const r = { ...row };
+          if ('priority' in r) {
+            r.priority = normalizePriority(r.priority);
+          } else {
+            // try case-insensitive header names if CSV uses different casing
+            const key = Object.keys(r).find(k => k && k.toLowerCase() === 'priority');
+            if (key) r[key] = normalizePriority(r[key]);
+          }
+          return r;
+        });
+
+        const cols = (normalizedRows[0] ? Object.keys(normalizedRows[0]) : parsedHeaders).map((key) => ({
           field: key,
           editable: true,
           cellClassRules: {
@@ -94,7 +179,8 @@ export default function Upload() {
           },
         }));
         setColumnDefs(cols);
-        setRowData(results.data);
+        // use normalized rows for display and submit
+        setRowData(normalizedRows);
         toast.success("CSV loaded – check red cells!");
       },
     });

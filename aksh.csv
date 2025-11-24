@@ -1,6 +1,6 @@
 case_id,applicant_name,dob,email,phone,category,priority,status
-123A,Rahul Sharma,1998-05-12,rahul.sharma@example.com,9876543210,General,High,Open
-124A,Anita Verma,1999-08-23,anita.verma@example.com,9876543211,SC,Medium,In Progress
-125A,Aman Gupta,2000-01-15,aman.gupta@example.com,9876543212,OBC,Low,Open
-126A,Pooja Singh,1997-11-30,pooja.singh@example.com,9876543213,ST,High,Closed
-127A,Ravi Kumar,1996-03-05,ravi.kumar@example.com,9876543214,General,Medium,Open
+244A,Harini Desai,1996-01-17,harini.desai@example.com,9000000121,TAX,High,PROCESSING
+245A,Karan Sehgal,1997-05-29,karan.sehgal@example.com,9000000122,PERMIT,Medium,COMPLETED
+246A,Meenal Sharma,1998-11-03,meenal.sharma@example.com,9000000123,TAX,Low,FAILED
+247A,Amit Paul,1999-07-25,amit.paul@example.com,9000000124,PERMIT,High,NEW
+248A,Sakshi Verma,1995-03-19,sakshi.verma@example.com,9000000125,TAX,Medium,COMPLETED

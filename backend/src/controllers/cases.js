@@ -77,19 +77,32 @@ router.post('/batch', authMiddleware, async (req, res) => {
     const raw = Array.isArray(req.body) ? req.body : req.body.cases;
     if (!Array.isArray(raw)) return res.status(400).json({ error: 'Expected an array of cases or { cases: [...] }' });
 
-    const totalRows = raw.length;
+    // Sort rows by business case_id ascending before processing.
+    // Use localeCompare with numeric option so mixed numeric ids sort naturally (e.g. "C2" < "C10").
+    // Coerce missing case_id to empty string so they sort first.
+    const rows = raw.slice().sort((a, b) => {
+      const aId = String(a?.case_id ?? '');
+      const bId = String(b?.case_id ?? '');
+      return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    // From this point use `rows` instead of `raw` for duplicate detection and processing.
+    const totalRows = rows.length;
     let successCount = 0;
     let failCount = 0;
     const errors = [];
 
     // Precompute last occurrence index per case_id so we use the last row on duplicates
     const lastIndexForCase = {};
-    raw.forEach((r, idx) => {
+    rows.forEach((r, idx) => {
       const cid = r?.case_id;
       if (cid) lastIndexForCase[String(cid)] = idx;
     });
 
-    const chunks = chunkArray(raw, 100);
+    // Track duplicates: case_id => number of earlier occurrences skipped
+    const duplicatesMap = {};
+
+    const chunks = chunkArray(rows, 100);
 
     // Use a single timestamp for this import to link failed Case rows to the ImportLog
     const importTimestamp = new Date();
@@ -107,6 +120,8 @@ router.post('/batch', authMiddleware, async (req, res) => {
         // If this case_id appears later in the file, skip this earlier occurrence and warn (non-fatal)
         if (caseIdValue && lastIndexForCase[caseIdValue] !== rowIndex) {
           errors.push({ index: rowIndex, case_id: caseIdValue, error: 'Duplicate case_id in file — later row will be used' });
+          // increment duplicates map so we can persist an audit note later
+          duplicatesMap[caseIdValue] = (duplicatesMap[caseIdValue] || 0) + 1;
           // do not count as fail; continue to next row
           continue;
         }
@@ -236,6 +251,28 @@ router.post('/batch', authMiddleware, async (req, res) => {
       }
     }
 
+    // After processing rows, persist a Note on each case that had duplicates so UI can surface it.
+    // We create a short human-friendly note like: "Duplicate rows in import: N earlier occurrence(s) ignored"
+    try {
+      const dupCaseIds = Object.keys(duplicatesMap);
+      for (const cid of dupCaseIds) {
+        // find the canonical case (the upserted final row should exist)
+        const theCase = await prisma.case.findUnique({ where: { case_id: cid }, select: { id: true } });
+        if (theCase) {
+          const noteContent = `Duplicate rows in import: ${duplicatesMap[cid]} earlier occurrence(s) ignored`;
+          await prisma.note.create({
+            data: {
+              caseId: theCase.id,
+              content: noteContent,
+              authorId: req.user?.userId ?? null,
+            },
+          });
+        }
+      }
+    } catch (noteErr) {
+      console.error('Failed to persist duplicate notes:', noteErr);
+    }
+
     // Create ImportLog with explicit createdAt = importTimestamp so we can link failed Case rows
     let importLog;
     try {
@@ -282,7 +319,16 @@ router.get('/', authMiddleware, async (req, res) => {
     const take = limit + 1; // fetch one extra to detect nextCursor
     const dir = sortDir && String(sortDir).toLowerCase() === 'asc' ? 'asc' : 'desc';
 
+    // Build where clause progressively.
+    // IMPORTANT: restrict results to the importer for non-admin users.
     const where = {};
+    const requesterId = String(req.user?.userId ?? req.user?.id ?? '');
+    const requesterRole = String(req.user?.role ?? '').toUpperCase();
+    if (requesterRole !== 'ADMIN') {
+      // Only show cases imported by the current user
+      where.importedById = requesterId;
+    }
+
     if (status) where.status = String(status);
     if (category) where.category = String(category);
     if (priority !== undefined && priority !== null && priority !== '') {
@@ -330,7 +376,7 @@ router.get('/', authMiddleware, async (req, res) => {
       items.pop(); // remove the extra item
     }
 
-  return res.json({ items: items, nextCursor, limit });
+    return res.json({ items: items, nextCursor, limit });
   } catch (err) {
     console.error('GET /api/cases error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -371,6 +417,13 @@ router.get('/:caseId', authMiddleware, async (req, res) => {
     }
 
     if (!caseItem) return res.status(404).json({ error: 'Case not found' });
+
+    // Access control: non-admins can only view cases they imported
+    const requesterId = String(req.user?.userId ?? req.user?.id ?? '');
+    const requesterRole = String(req.user?.role ?? '').toUpperCase();
+    if (requesterRole !== 'ADMIN' && String(caseItem.importedById) !== requesterId) {
+      return res.status(403).json({ error: 'Forbidden', message: 'You can only view cases you imported' });
+    }
 
     // Try to find the ImportLog that matches the importedAt timestamp and user
     let importLog = null;
@@ -435,6 +488,64 @@ router.post('/:caseId/notes', authMiddleware, async (req, res) => {
     return res.status(201).json({ note: created });
   } catch (err) {
     console.error('POST /api/cases/:caseId/notes error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /api/cases/:caseId -> partial update by business case_id or by primary id if UUID
+// Body: { applicant_name?, dob?, email?, phone?, category?, priority?, status? }
+router.put('/:caseId', authMiddleware, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    if (!caseId) return res.status(400).json({ error: 'Missing caseId' });
+
+    // determine lookup mode (UUID primary id or business case_id)
+    const isUuid = typeof caseId === 'string' && /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i.test(caseId);
+    const payload = req.body || {};
+
+    // find existing case
+    let existing = null;
+    if (isUuid) {
+      existing = await prisma.case.findUnique({ where: { id: String(caseId) } });
+    }
+    if (!existing) {
+      existing = await prisma.case.findUnique({ where: { case_id: String(caseId) } });
+    }
+    if (!existing) return res.status(404).json({ error: 'Case not found' });
+
+    // permission: only importer or ADMIN can update
+    const requesterId = String(req.user?.userId ?? req.user?.id ?? '');
+    const requesterRole = String(req.user?.role ?? '').toUpperCase();
+    if (requesterRole !== 'ADMIN' && String(existing.importedById) !== requesterId) {
+      return res.status(403).json({ error: 'Forbidden', message: 'Only the importer or an ADMIN can edit this case' });
+    }
+
+    // Build update payload defensively
+    const updateData = {};
+    if (payload.applicant_name !== undefined) updateData.applicant_name = payload.applicant_name ?? null;
+    if (payload.email !== undefined) updateData.email = payload.email ?? null;
+    if (payload.phone !== undefined) updateData.phone = payload.phone ?? null;
+    if (payload.category !== undefined) updateData.category = payload.category ?? null;
+    if (payload.status !== undefined) updateData.status = payload.status ?? null;
+    if (payload.dob !== undefined) updateData.dob = safeDateFrom(payload.dob);
+    if (payload.priority !== undefined) {
+      // coerce/parse priority using existing helper
+      updateData.priority = parsePriorityValue(payload.priority);
+    }
+
+    // perform update using primary id to be safe
+    const updated = await prisma.case.update({
+      where: { id: existing.id },
+      data: {
+        ...updateData,
+        // mark who made this update (keep importedById as original importer)
+        // optionally you could track lastModifiedById, but keep current schema unchanged
+      },
+    });
+
+    return res.json({ case: updated });
+  } catch (err) {
+    console.error('PUT /api/cases/:caseId error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

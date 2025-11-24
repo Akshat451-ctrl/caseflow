@@ -29,6 +29,16 @@ export default function Login() {
     return () => { mounted.current = false; };
   }, []);
 
+  // Honor explicit ?mode=login or ?mode=register to control initial UI
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedMode = params.get('mode');
+    if (requestedMode === 'login' || requestedMode === 'register') {
+      setMode(requestedMode);
+    }
+    // keep dependency on location.search so changes update mode
+  }, [location.search]);
+
   // Magic link verification
   useEffect(() => {
     const params = new URLSearchParams(location.search);

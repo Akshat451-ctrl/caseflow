@@ -1,0 +1,51 @@
+case_id,applicant_name,dob,email,phone,category,priority,status
+123A,Rahul Sharma,1998-05-12,rahul.sharma@example.com,9000000001,General,High,Open
+124A,Anita Verma,1999-08-23,anita.verma@example.com,9000000002,OBC,Medium,In Progress
+125A,Aman Gupta,2000-01-15,aman.gupta@example.com,9000000003,SC,Low,Open
+126A,Pooja Singh,1997-11-30,pooja.singh@example.com,9000000004,ST,High,Closed
+127A,Ravi Kumar,1996-03-05,ravi.kumar@example.com,9000000005,General,Medium,Open
+128A,Neha Patel,1998-02-19,neha.patel@example.com,9000000006,OBC,High,Open
+129A,Saurabh Jain,1995-07-21,saurabh.jain@example.com,9000000007,SC,Low,In Progress
+130A,Priya Yadav,1999-12-10,priya.yadav@example.com,9000000008,ST,Medium,Open
+131A,Arjun Mehta,1997-04-03,arjun.mehta@example.com,9000000009,General,High,Closed
+132A,Kajal Sinha,2001-06-25,kajal.sinha@example.com,9000000010,OBC,Low,Open
+133A,Vivek Tiwari,1998-09-14,vivek.tiwari@example.com,9000000011,SC,Medium,Open
+134A,Simran Kaur,1996-11-08,simran.kaur@example.com,9000000012,ST,High,In Progress
+135A,Rohit Reddy,1995-03-18,rohit.reddy@example.com,9000000013,General,Low,Closed
+136A,Anjali Nair,1997-08-29,anjali.nair@example.com,9000000014,OBC,Medium,Open
+137A,Karan Malhotra,1999-01-07,karan.malhotra@example.com,9000000015,SC,High,Open
+138A,Deepika Rao,2000-10-11,deepika.rao@example.com,9000000016,ST,Low,In Progress
+139A,Manish Dubey,1996-05-30,manish.dubey@example.com,9000000017,General,Medium,Open
+140A,Swati Mishra,1998-03-22,swati.mishra@example.com,9000000018,OBC,High,Closed
+141A,Nikhil Chauhan,1997-09-16,nikhil.chauhan@example.com,9000000019,SC,Low,Open
+142A,Shreya Joshi,1995-12-28,shreya.joshi@example.com,9000000020,ST,Medium,Open
+143A,Harsh Vardhan,1999-02-14,harsh.vardhan@example.com,9000000021,General,High,In Progress
+144A,Isha Kulkarni,2001-07-09,isha.kulkarni@example.com,9000000022,OBC,Low,Open
+145A,Siddharth Roy,1998-01-19,siddharth.roy@example.com,9000000023,SC,Medium,Closed
+146A,Priyanshi Goyal,1996-06-11,priyanshi.goyal@example.com,9000000024,ST,High,Open
+147A,Abhishek Soni,1997-10-27,abhishek.soni@example.com,9000000025,General,Low,Open
+148A,Tanya Bansal,1995-04-06,tanya.bansal@example.com,9000000026,OBC,Medium,In Progress
+149A,Mohit Chawla,1998-08-18,mohit.chawla@example.com,9000000027,SC,High,Open
+150A,Ritika Jain,1999-11-23,ritika.jain@example.com,9000000028,ST,Low,Closed
+151A,Varun Arora,1997-03-02,varun.arora@example.com,9000000029,General,Medium,Open
+152A,Megha Desai,2000-09-12,megha.desai@example.com,9000000030,OBC,High,Open
+153A,Aditya Sahu,1996-01-26,aditya.sahu@example.com,9000000031,SC,Low,In Progress
+154A,Sonali Thakur,1995-07-31,sonali.thakur@example.com,9000000032,ST,Medium,Open
+155A,Prateek Bhatia,1998-02-08,prateek.bhatia@example.com,9000000033,General,High,Closed
+156A,Juhi Pandey,1999-05-17,juhi.pandey@example.com,9000000034,OBC,Low,Open
+157A,Anmol Saxena,1997-11-05,anmol.saxena@example.com,9000000035,SC,Medium,Open
+158A,Shivani Rani,1996-04-20,shivani.rani@example.com,9000000036,ST,High,In Progress
+159A,Lokesh Verma,1995-10-13,lokesh.verma@example.com,9000000037,General,Low,Open
+160A,Kirti Kapoor,1998-06-27,kirti.kapoor@example.com,9000000038,OBC,Medium,Open
+161A,Harshit Garg,1999-03-09,harshit.garg@example.com,9000000039,SC,High,Closed
+162A,Naina Arvind,2000-12-01,naina.arvind@example.com,9000000040,ST,Low,Open
+163A,Yash Chandra,1997-02-24,yash.chandra@example.com,9000000041,General,Medium,Open
+164A,Sneha Dixit,1996-08-19,sneha.dixit@example.com,9000000042,OBC,High,In Progress
+165A,Parth Trivedi,1995-01-11,parth.trivedi@example.com,9000000043,SC,Low,Open
+166A,Roshni Ali,1998-09-03,roshni.ali@example.com,9000000044,ST,Medium,Closed
+167A,Akash Jindal,1999-04-15,akash.jindal@example.com,9000000045,General,High,Open
+168A,Divya Chopra,1997-07-28,divya.chopra@example.com,9000000046,OBC,Low,Open
+169A,Sameer Khan,1996-11-22,sameer.khan@example.com,9000000047,SC,Medium,In Progress
+170A,Manvi Bhat,1995-05-07,manvi.bhat@example.com,9000000048,ST,High,Open
+172A,Om Prakash,1998-10-30,om.prakash@example.com,9000000049,General,Low,Closed
+173A,Shalini Reddy,1999-06-04,shalini.reddy@example.com,9000000050,OBC,Medium,Open

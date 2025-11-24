@@ -24,11 +24,23 @@ const authMiddleware = (req, res, next) => {
 };
 
 // GET /api/import-logs
-// Returns all import logs
+// Returns import logs visible to requester (owner) — ADMIN sees all
 router.get('/', authMiddleware, async (req, res) => {
   try {
+    // Resolve requester id and role
+    const requesterId = String(req.user?.userId ?? req.user?.id ?? '');
+    const requesterRole = String(req.user?.role ?? '').toUpperCase();
+
+    // Owners see their logs; ADMIN sees all
+    const where = {};
+    if (requesterRole !== 'ADMIN') {
+      where.userId = requesterId;
+    }
+
     const logs = await prisma.importLog.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
+      include: { user: { select: { id: true, email: true } } },
     });
     return res.json({ importLogs: logs });
   } catch (err) {
@@ -39,11 +51,19 @@ router.get('/', authMiddleware, async (req, res) => {
 
 // GET /api/import-logs/:id
 // Returns the import log and any failed rows (cases with errorMessage) that share the same importedAt timestamp
+// Access: only owner or ADMIN can view this report
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const log = await prisma.importLog.findUnique({ where: { id } });
+    const log = await prisma.importLog.findUnique({ where: { id }, include: { user: { select: { id: true, email: true } } } });
     if (!log) return res.status(404).json({ error: 'ImportLog not found' });
+
+    // Allow access only to owner or ADMIN
+    const requesterId = String(req.user?.userId ?? req.user?.id ?? '');
+    const requesterRole = String(req.user?.role ?? '').toUpperCase();
+    if (requesterRole !== 'ADMIN' && requesterId !== String(log.userId)) {
+      return res.status(403).json({ error: 'Forbidden', message: 'Only the import owner or an ADMIN can view this report' });
+    }
 
     // Find failed cases with the same importedAt timestamp and errorMessage not null
     const failedRows = await prisma.case.findMany({
@@ -68,11 +88,24 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     const log = await prisma.importLog.findUnique({ where: { id } });
     if (!log) return res.status(404).json({ error: 'ImportLog not found' });
 
-    // only allow owner or ADMIN to delete
-    const requesterId = req.user?.userId;
-    const requesterRole = req.user?.role;
-    if (requesterId !== log.userId && requesterRole !== 'ADMIN') {
-      return res.status(403).json({ error: 'Forbidden' });
+    // Resolve requester id from token payload (support userId or id)
+    const rawRequesterId = req.user?.userId ?? req.user?.id;
+    const requesterId = rawRequesterId ? String(rawRequesterId) : null;
+    const requesterRole = String(req.user?.role || '').toUpperCase();
+
+    // Debug: log requester vs owner
+    console.log(`[IMPORT-DELETE] requester=${requesterId} role=${requesterRole} log.userId=${String(log.userId)}`);
+
+    // only allow owner or ADMIN to delete (compare as strings)
+    if (!requesterId || (String(requesterId) !== String(log.userId) && requesterRole !== 'ADMIN')) {
+      // give a clearer message for clients to show
+      console.warn('[IMPORT-DELETE] Forbidden: requester does not own this import and is not ADMIN', { requesterId, requesterRole, owner: log.userId });
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Only the user who created this import or an ADMIN can delete it.',
+        requesterId,
+        ownerId: String(log.userId)
+      });
     }
 
     // Use a safe time window around the import log timestamp to find failed rows.

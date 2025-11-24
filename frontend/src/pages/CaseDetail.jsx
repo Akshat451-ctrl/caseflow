@@ -11,6 +11,16 @@ export default function CaseDetail() {
   const [noteText, setNoteText] = useState('');
   const [adding, setAdding] = useState(false);
 
+  // Edit mode + form state for inline editing
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    applicant_name: '',
+    email: '',
+    phone: '',
+    category: '',
+    priority: '',
+  });
+
   useEffect(() => {
     if (!caseId) return;
     setLoading(true);
@@ -22,6 +32,19 @@ export default function CaseDetail() {
       })
       .finally(() => setLoading(false));
   }, [caseId]);
+
+  // populate form when data loads or changes
+  useEffect(() => {
+    if (!data || !data.case) return;
+    const c = data.case;
+    setForm({
+      applicant_name: c.applicant_name ?? '',
+      email: c.email ?? '',
+      phone: c.phone ?? '',
+      category: c.category ?? '',
+      priority: c.priority ?? '',
+    });
+  }, [data]);
 
   function refresh() {
     if (!caseId) return;
@@ -98,6 +121,50 @@ export default function CaseDetail() {
     return String(obj);
   }
 
+  const startEdit = () => setEditing(true);
+  const cancelEdit = () => {
+    // revert form to case values
+    if (data?.case) {
+      const c = data.case;
+      setForm({
+        applicant_name: c.applicant_name ?? '',
+        email: c.email ?? '',
+        phone: c.phone ?? '',
+        category: c.category ?? '',
+        priority: c.priority ?? '',
+      });
+    }
+    setEditing(false);
+  };
+
+  const saveEdit = async () => {
+    if (!data?.case) return;
+    const caseIdToUpdate = data.case.case_id;
+    // build minimal payload only with fields that are present (backend accepts partial)
+    const payload = {
+      applicant_name: form.applicant_name,
+      email: form.email,
+      phone: form.phone,
+      category: form.category,
+      priority: form.priority,
+    };
+
+    const t = toast.loading('Saving changes...');
+    try {
+      const res = await api.put(`/api/cases/${encodeURIComponent(caseIdToUpdate)}`, payload);
+      // update UI with returned case
+      setData((d) => ({ ...d, case: res.data.case }));
+      toast.dismiss(t);
+      toast.success('Case updated');
+      setEditing(false);
+    } catch (err) {
+      toast.dismiss(t);
+      console.error('Failed to update case', err);
+      toast.error(err?.response?.data?.error || 'Failed to save changes');
+      // do not auto-close edit mode so user can try again or cancel
+    }
+  };
+
   if (loading) return <div className="p-6">Loading...</div>;
   if (!data || !data.case) return <div className="p-6">Case not found</div>;
 
@@ -108,12 +175,24 @@ export default function CaseDetail() {
     importLogId: data.importLogId,
   };
 
+  // detect duplicate-note (added by import process)
+  const duplicateNote = (data.notes || []).find(n => typeof n.content === 'string' && n.content.startsWith('Duplicate rows in import'));
+  const isDuplicate = !!duplicateNote;
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-5xl mx-auto">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-extrabold text-gray-800">Case {c.case_id}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-extrabold text-gray-800">Case {c.case_id}</h1>
+              {isDuplicate && (
+                <span title={duplicateNote.content} className="text-xs font-semibold px-2 py-1 rounded bg-yellow-100 text-yellow-800 border border-yellow-200">
+                  Duplicate
+                </span>
+              )}
+            </div>
+
             <div className="mt-2 flex items-center space-x-3">
               <span className="text-sm text-gray-500">Status</span>
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${c.status === 'FAILED' ? 'bg-red-100 text-red-700' : c.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{c.status}</span>
@@ -122,6 +201,14 @@ export default function CaseDetail() {
           </div>
           <div className="flex items-center space-x-3">
             <button onClick={() => navigate('/cases')} className="px-4 py-2 bg-white border rounded text-sm">Back</button>
+            {!editing ? (
+              <button onClick={startEdit} className="px-4 py-2 bg-yellow-400 text-black rounded text-sm">Edit</button>
+            ) : (
+              <>
+                <button onClick={saveEdit} className="px-4 py-2 bg-green-600 text-white rounded text-sm">Save</button>
+                <button onClick={cancelEdit} className="px-4 py-2 bg-gray-200 rounded text-sm">Cancel</button>
+              </>
+            )}
             <button onClick={refresh} className="px-4 py-2 bg-indigo-600 text-white rounded text-sm">Refresh</button>
           </div>
         </div>
@@ -132,7 +219,11 @@ export default function CaseDetail() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <div className="text-sm text-gray-500">Name</div>
-                <div className="font-medium">{c.applicant_name || '-'}</div>
+                {editing ? (
+                  <input className="w-full border rounded px-3 py-2" value={form.applicant_name} onChange={(e) => setForm(prev => ({ ...prev, applicant_name: e.target.value }))} />
+                ) : (
+                  <div className="font-medium">{c.applicant_name || '-'}</div>
+                )}
               </div>
               <div>
                 <div className="text-sm text-gray-500">DOB</div>
@@ -140,11 +231,19 @@ export default function CaseDetail() {
               </div>
               <div>
                 <div className="text-sm text-gray-500">Email</div>
-                <div className="font-medium">{c.email || '-'}</div>
+                {editing ? (
+                  <input className="w-full border rounded px-3 py-2" value={form.email} onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))} />
+                ) : (
+                  <div className="font-medium">{c.email || '-'}</div>
+                )}
               </div>
               <div>
                 <div className="text-sm text-gray-500">Phone</div>
-                <div className="font-medium">{c.phone || '-'}</div>
+                {editing ? (
+                  <input className="w-full border rounded px-3 py-2" value={form.phone} onChange={(e) => setForm(prev => ({ ...prev, phone: e.target.value }))} />
+                ) : (
+                  <div className="font-medium">{c.phone || '-'}</div>
+                )}
               </div>
             </div>
 
@@ -153,12 +252,32 @@ export default function CaseDetail() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <div className="text-sm text-gray-500">Category</div>
-                  <div className="font-medium">{c.category || '-'}</div>
+                  {editing ? (
+                    <select className="w-full border rounded px-3 py-2" value={form.category} onChange={(e) => setForm(prev => ({ ...prev, category: e.target.value }))}>
+                      <option value="">-</option>
+                      <option value="TAX">TAX</option>
+                      <option value="LICENSE">LICENSE</option>
+                      <option value="PERMIT">PERMIT</option>
+                    </select>
+                  ) : (
+                    <div className="font-medium">{c.category || '-'}</div>
+                  )}
                 </div>
                 <div>
                   <div className="text-sm text-gray-500">Error</div>
                   <div className="font-bold text-black">{formatErrorMessage(c.errorMessage) || '-'}</div>
                 </div>
+                {editing && (
+                  <div>
+                    <div className="text-sm text-gray-500">Priority</div>
+                    <select className="w-full border rounded px-3 py-2" value={form.priority ?? ''} onChange={(e) => setForm(prev => ({ ...prev, priority: e.target.value }))}>
+                      <option value="">-</option>
+                      <option value="3">HIGH</option>
+                      <option value="2">MEDIUM</option>
+                      <option value="1">LOW</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>

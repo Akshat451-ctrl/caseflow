@@ -22,7 +22,8 @@ export default function Register() {
       // Ensure we do NOT auto-login: clear any stored auth and send user to login page
       try { clearAuth(); } catch (e) {}
       toast.success('Account created. Please sign in.');
-      navigate('/login');
+      // Navigate to login and request login mode explicitly to force sign-in UI
+      navigate('/login?mode=login', { replace: true });
     } catch (err) {
       console.error('Register error', err);
       setError(err.response?.data?.error || 'Registration failed');

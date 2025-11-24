@@ -2,10 +2,23 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { toast } from 'react-hot-toast';
+import { useAuthStore } from '../store/authStore';
 
 export default function Reports() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const currentUser = useAuthStore((s) => s.user);
+
+  // Helper: determine if current user can delete a given import log
+  const canDeleteLog = (log) => {
+    if (!currentUser) return false;
+    const curId = String(currentUser.id ?? currentUser.userId ?? '');
+    const curEmail = String(currentUser.email ?? '').toLowerCase();
+    const role = String(currentUser.role ?? '').toUpperCase();
+    const ownerId = String(log.user?.id ?? log.userId ?? '');
+    const ownerEmail = String(log.user?.email ?? '').toLowerCase();
+    return role === 'ADMIN' || (curId && ownerId && curId === ownerId) || (curEmail && ownerEmail && curEmail === ownerEmail);
+  };
 
   useEffect(() => {
     fetchLogs();
@@ -33,7 +46,12 @@ export default function Reports() {
       fetchLogs();
     } catch (err) {
       console.error('Failed to delete import log:', err);
-      toast.error(err?.response?.data?.error || 'Delete failed');
+      if (err?.response?.status === 403) {
+        const msg = err.response.data?.message || 'You are not allowed to delete this import';
+        toast.error(msg);
+      } else {
+        toast.error(err?.response?.data?.error || 'Delete failed');
+      }
     }
   };
 
@@ -60,6 +78,7 @@ export default function Reports() {
               <div className="flex justify-between items-start">
                 <div>
                   <h2 className="text-lg font-semibold">Import #{log.id}</h2>
+                  {log.user?.email && <div className="text-sm text-gray-500">Owner: <span className="font-medium">{log.user.email}</span></div>}
                   <p className="text-sm text-gray-600">Created: {new Date(log.createdAt).toLocaleString()}</p>
                   <p className="text-sm">Total rows: {log.totalRows}, Success: {log.successCount}, Failed: {log.failCount}</p>
                 </div>
@@ -70,13 +89,18 @@ export default function Reports() {
                   >
                     View Details
                   </Link>
-                  <button
-                    onClick={() => deleteLog(log.id)}
-                    className="px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded hover:from-red-600 hover:to-rose-700 shadow-md transform hover:-translate-y-0.5 transition"
-                    title="Delete import and failed rows"
-                  >
-                    Delete
-                  </button>
+                  {/* Only show Delete if current user is the owner or an ADMIN */}
+                  {canDeleteLog(log) ? (
+                    <button
+                      onClick={() => deleteLog(log.id)}
+                      className="px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded hover:from-red-600 hover:to-rose-700 shadow-md transform hover:-translate-y-0.5 transition"
+                      title="Delete import and failed rows"
+                    >
+                      Delete
+                    </button>
+                  ) : (
+                    <div className="px-4 py-2 text-sm text-gray-400 rounded border border-gray-100" title="Only import owner or admin can delete">Delete</div>
+                  )}
                 </div>
               </div>
             </div>
